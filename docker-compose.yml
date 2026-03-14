@@ -1,26 +1,147 @@
+name: news-realtime-project
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  image: sgu25-bigdata-airflow:local
+  profiles:
+    - airflow
+  restart: unless-stopped
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    AIRFLOW_HOME: /opt/airflow
+    PROJECT_ROOT: /opt/airflow/project
+    PYTHONPATH: /opt/airflow/project
+    KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    KAFKA_TOPIC: news_raw
+    HDFS_URL: http://namenode:9870
+    HDFS_USER: root
+    WEBHDFS_REDIRECT_HOST: datanode
+  volumes:
+    - ./dags:/opt/airflow/dags:ro
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./:/opt/airflow/project:ro
+  depends_on:
+    postgres:
+      condition: service_healthy
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: zookeeper
+    hostname: zookeeper
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: kafka
+    hostname: kafka
+    restart: unless-stopped
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
+      - "9093:9093"
       - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9093
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    hostname: namenode
+    restart: unless-stopped
+    environment:
+      CLUSTER_NAME: news-cluster
+      CORE_CONF_fs_defaultFS: hdfs://namenode:9000
+      HDFS_CONF_dfs_replication: 1
+      HDFS_CONF_dfs_permissions_enabled: "false"
+      HDFS_CONF_dfs_webhdfs_enabled: "true"
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    volumes:
+      - namenode:/hadoop/dfs/name
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    hostname: datanode
+    restart: unless-stopped
+    depends_on:
+      - namenode
+    environment:
+      SERVICE_PRECONDITION: namenode:9870
+      CORE_CONF_fs_defaultFS: hdfs://namenode:9000
+      HDFS_CONF_dfs_replication: 1
+      HDFS_CONF_dfs_permissions_enabled: "false"
+      HDFS_CONF_dfs_webhdfs_enabled: "true"
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+      HDFS_CONF_dfs_datanode_hostname: localhost
+      HDFS_CONF_dfs_client_use_datanode_hostname: "true"
+      HDFS_CONF_dfs_datanode_use_datanode_hostname: "true"
+    ports:
+      - "9864:9864"
+    volumes:
+      - datanode:/hadoop/dfs/data
+
+  postgres:
+    image: postgres:16
+    hostname: postgres
+    profiles:
+      - airflow
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  airflow-init:
+    <<: *airflow-common
+    restart: "no"
+    command: >
+      bash -c "
+      airflow db migrate &&
+      airflow users create
+      --username airflow
+      --password airflow
+      --firstname Airflow
+      --lastname Admin
+      --role Admin
+      --email airflow@example.com || true
+      "
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+
+volumes:
+  namenode:
+  datanode:
+  postgres-db-volume:

@@ -1,7 +1,4 @@
 feedparser
-requests
-beautifulsoup4
 kafka-python
 hdfs
-pandas
-apache-airflow
+requests

@@ -1,0 +1,23 @@
+[2026-03-14T15:26:37.209+0000] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2026-03-14T15:26:37.228+0000] {taskinstance.py:2631} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: news_pipeline.validate_hdfs_output scheduled__2026-03-14T14:30:00+00:00 [queued]>
+[2026-03-14T15:26:37.235+0000] {taskinstance.py:2631} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: news_pipeline.validate_hdfs_output scheduled__2026-03-14T14:30:00+00:00 [queued]>
+[2026-03-14T15:26:37.236+0000] {taskinstance.py:2884} INFO - Starting attempt 1 of 2
+[2026-03-14T15:26:37.245+0000] {taskinstance.py:2907} INFO - Executing <Task(BashOperator): validate_hdfs_output> on 2026-03-14 14:30:00+00:00
+[2026-03-14T15:26:37.250+0000] {logging_mixin.py:190} WARNING - /home/***/.local/lib/python3.12/site-packages/***/task/task_runner/standard_task_runner.py:70 DeprecationWarning: This process (pid=210) is multi-threaded, use of fork() may lead to deadlocks in the child.
+[2026-03-14T15:26:37.252+0000] {standard_task_runner.py:72} INFO - Started process 211 to run task
+[2026-03-14T15:26:37.251+0000] {standard_task_runner.py:104} INFO - Running: ['***', 'tasks', 'run', 'news_pipeline', 'validate_hdfs_output', 'scheduled__2026-03-14T14:30:00+00:00', '--job-id', '7', '--raw', '--subdir', 'DAGS_FOLDER/news_pipeline_dag.py', '--cfg-path', '/tmp/tmpkko2ylry']
+[2026-03-14T15:26:37.254+0000] {standard_task_runner.py:105} INFO - Job 7: Subtask validate_hdfs_output
+[2026-03-14T15:26:37.312+0000] {task_command.py:467} INFO - Running <TaskInstance: news_pipeline.validate_hdfs_output scheduled__2026-03-14T14:30:00+00:00 [running]> on host 7f7334ec5610
+[2026-03-14T15:26:37.380+0000] {taskinstance.py:3157} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='codex' AIRFLOW_CTX_DAG_ID='news_pipeline' AIRFLOW_CTX_TASK_ID='validate_hdfs_output' AIRFLOW_CTX_EXECUTION_DATE='2026-03-14T14:30:00+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='scheduled__2026-03-14T14:30:00+00:00'
+[2026-03-14T15:26:37.382+0000] {taskinstance.py:740} INFO - ::endgroup::
+[2026-03-14T15:26:37.392+0000] {subprocess.py:78} INFO - Tmp dir root location: /tmp
+[2026-03-14T15:26:37.393+0000] {subprocess.py:88} INFO - Running command: ['/usr/bin/bash', '-c', 'cd /opt/***/project && python scripts/validate_hdfs_output.py --path /news/raw']
+[2026-03-14T15:26:37.401+0000] {subprocess.py:99} INFO - Output:
+[2026-03-14T15:26:38.105+0000] {subprocess.py:106} INFO - Found 5 HDFS file(s) under /news/raw
+[2026-03-14T15:26:38.106+0000] {subprocess.py:106} INFO - Latest file: /news/raw/2026/03/14/news_152635.jsonl
+[2026-03-14T15:26:38.125+0000] {subprocess.py:110} INFO - Command exited with return code 0
+[2026-03-14T15:26:38.147+0000] {taskinstance.py:349} INFO - ::group::Post task execution logs
+[2026-03-14T15:26:38.148+0000] {taskinstance.py:361} INFO - Marking task as SUCCESS. dag_id=news_pipeline, task_id=validate_hdfs_output, run_id=scheduled__2026-03-14T14:30:00+00:00, execution_date=20260314T143000, start_date=20260314T152637, end_date=20260314T152638
+[2026-03-14T15:26:38.211+0000] {local_task_job_runner.py:266} INFO - Task exited with return code 0
+[2026-03-14T15:26:38.225+0000] {taskinstance.py:3924} INFO - 0 downstream tasks scheduled from follow-on schedule check
+[2026-03-14T15:26:38.227+0000] {local_task_job_runner.py:245} INFO - ::endgroup::

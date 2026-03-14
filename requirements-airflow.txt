@@ -1,0 +1,2 @@
+# The Docker image already includes Apache Airflow itself.
+# Add extra Airflow-only Python dependencies here if you need them later.
