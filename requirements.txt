@@ -2,3 +2,4 @@ feedparser
 kafka-python
 hdfs
 requests
+pyspark==4.0.0

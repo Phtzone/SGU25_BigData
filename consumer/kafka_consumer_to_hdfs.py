@@ -3,12 +3,14 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
-from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from typing import Any, TYPE_CHECKING
 
-from hdfs import InsecureClient
-from kafka import KafkaConsumer
-import requests
+from common.article_schema import normalize_article_record, validate_article_record
+from common.hdfs_utils import upload_hdfs_bytes
+
+if TYPE_CHECKING:
+    from hdfs import InsecureClient
+    from kafka import KafkaConsumer
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,7 +39,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def create_consumer(args: argparse.Namespace) -> KafkaConsumer:
+def create_consumer(args: argparse.Namespace):
+    from kafka import KafkaConsumer
+
     return KafkaConsumer(
         args.topic,
         bootstrap_servers=args.bootstrap_servers,
@@ -49,7 +53,7 @@ def create_consumer(args: argparse.Namespace) -> KafkaConsumer:
 
 
 def collect_messages(
-    consumer: KafkaConsumer,
+    consumer: Any,
     max_messages: int,
     poll_timeout_ms: int,
 ) -> list[dict[str, Any]]:
@@ -68,6 +72,21 @@ def collect_messages(
     return collected
 
 
+def normalize_rows_for_storage(rows: list[dict[str, Any]]) -> tuple[list[dict[str, str]], int]:
+    valid_rows: list[dict[str, str]] = []
+    invalid_count = 0
+
+    for row in rows:
+        normalized = normalize_article_record(row)
+        errors = validate_article_record(normalized)
+        if errors:
+            invalid_count += 1
+            continue
+        valid_rows.append(normalized)
+
+    return valid_rows, invalid_count
+
+
 def build_output_path(base_path: str, collected_at: datetime) -> str:
     output_dir = PurePosixPath(
         base_path,
@@ -80,7 +99,7 @@ def build_output_path(base_path: str, collected_at: datetime) -> str:
 
 def write_jsonl_to_hdfs(
     args: argparse.Namespace,
-    client: InsecureClient,
+    client: Any,
     output_path: str,
     rows: list[dict[str, Any]],
 ) -> None:
@@ -88,60 +107,18 @@ def write_jsonl_to_hdfs(
     client.makedirs(directory)
 
     payload = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows).encode("utf-8")
-    create_url = f"{args.hdfs_url.rstrip('/')}/webhdfs/v1{output_path}"
-    create_response = requests.put(
-        create_url,
-        params={
-            "op": "CREATE",
-            "overwrite": "true",
-            "user.name": args.hdfs_user,
-        },
-        allow_redirects=False,
-        timeout=30,
+    upload_hdfs_bytes(
+        hdfs_url=args.hdfs_url,
+        hdfs_user=args.hdfs_user,
+        path=output_path,
+        data=payload,
+        redirect_host=args.webhdfs_redirect_host,
     )
-
-    if create_response.status_code in (307, 308):
-        redirect_url = rewrite_webhdfs_redirect(
-            location=create_response.headers["Location"],
-            requested_hdfs_url=args.hdfs_url,
-            redirect_host=args.webhdfs_redirect_host,
-        )
-        upload_response = requests.put(
-            redirect_url,
-            data=payload,
-            headers={"Content-Type": "application/octet-stream"},
-            timeout=60,
-        )
-        upload_response.raise_for_status()
-        return
-
-    create_response.raise_for_status()
-
-
-def rewrite_webhdfs_redirect(
-    location: str,
-    requested_hdfs_url: str,
-    redirect_host: str,
-) -> str:
-    parts = urlsplit(location)
-    effective_host = redirect_host.strip()
-
-    if not effective_host:
-        requested_host = urlsplit(requested_hdfs_url).hostname
-        if requested_host in {"localhost", "127.0.0.1"}:
-            effective_host = "localhost"
-
-    if not effective_host:
-        return location
-
-    netloc = effective_host
-    if parts.port:
-        netloc = f"{effective_host}:{parts.port}"
-
-    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 def main() -> None:
+    from hdfs import InsecureClient
+
     args = parse_args()
     consumer = create_consumer(args)
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
@@ -154,6 +131,13 @@ def main() -> None:
         )
         if not rows:
             print("No messages consumed from Kafka.")
+            return
+
+        rows, invalid_count = normalize_rows_for_storage(rows)
+        if invalid_count:
+            print(f"Skipped {invalid_count} invalid message(s) before writing to HDFS.")
+        if not rows:
+            print("No valid messages remained after validation.")
             return
 
         collected_at = datetime.now(timezone.utc)

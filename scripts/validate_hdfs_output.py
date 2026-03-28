@@ -2,7 +2,7 @@ import argparse
 import json
 import os
 
-from hdfs import InsecureClient
+from common.hdfs_utils import list_hdfs_files
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,6 +22,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    from hdfs import InsecureClient
+
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
 
     if not client.status(args.path, strict=False):
@@ -47,21 +49,6 @@ def main() -> None:
 
     print(f"Found {file_count} HDFS file(s) under {args.path}")
     print(f"Latest file: {latest_file}")
-
-
-def list_hdfs_files(client: InsecureClient, path: str) -> list[tuple[str, dict]]:
-    files: list[tuple[str, dict]] = []
-    entries = client.list(path, status=True)
-
-    for name, metadata in entries:
-        child_path = f"{path.rstrip('/')}/{name}"
-        if metadata["type"] == "FILE":
-            files.append((child_path, metadata))
-        else:
-            files.extend(list_hdfs_files(client, child_path))
-
-    return files
-
 
 if __name__ == "__main__":
     main()

@@ -22,7 +22,9 @@ x-airflow-common: &airflow-common
     KAFKA_TOPIC: news_raw
     HDFS_URL: http://namenode:9870
     HDFS_USER: root
+    HDFS_PROCESSED_PATH: /news/processed
     WEBHDFS_REDIRECT_HOST: datanode
+    SPARK_MASTER: local[*]
   volumes:
     - ./dags:/opt/airflow/dags:ro
     - ./airflow/logs:/opt/airflow/logs

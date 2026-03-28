@@ -7,13 +7,15 @@
 - 1 producer
 - 1 consumer
 - HDFS raw storage in JSON Lines
+- Spark transform from raw JSONL to processed Parquet
 
 ## Demo checklist
 
 1. Show producer logs fetching RSS items.
 2. Show Kafka topic creation and message flow.
 3. Show HDFS directory structure under `/news/raw/YYYY/MM/DD/`.
-4. Show the Airflow web UI and `news_pipeline` DAG task order.
+4. Show processed Parquet batches under `/news/processed/YYYY/MM/DD/`.
+5. Show the Airflow web UI and `news_pipeline` DAG task order.
 
 ## Suggested screenshots
 
@@ -21,4 +23,5 @@
 - Kafka topic list
 - HDFS NameNode UI
 - Terminal logs for producer and consumer
+- Terminal logs for Spark transform
 - Airflow DAG graph view and task logs

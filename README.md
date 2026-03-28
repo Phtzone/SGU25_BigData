@@ -2,7 +2,7 @@
 
 This repository is organized around the Big Data MVP:
 
-`RSS -> Kafka -> HDFS`
+`RSS -> Kafka -> HDFS raw -> Spark processed`
 
 Airflow orchestration is implemented as an optional Docker Compose profile on top of the working MVP stack.
 
@@ -23,9 +23,12 @@ Use `WSL/Linux + Docker Desktop`.
 |- requirements-airflow.txt
 |- producer/
 |- consumer/
+|- common/
 |- config/
 |- dags/
 |- scripts/
+|- tests/
+|- Spark_jobs/
 |- data/
 `- docs/
 ```
@@ -68,6 +71,8 @@ python -m pip install -r requirements.txt
 
 Using a venv inside `/mnt/d/...` can fail on WSL because `ensurepip` is unreliable on mounted Windows paths. A Linux-home venv such as `~/venvs/sgu25_bigdata` is the recommended setup for this repo.
 
+Phase 1 adds a local PySpark transform step, so Java 17 must also be available when you run the transform outside Docker.
+
 Start the core infrastructure:
 
 ```bash
@@ -92,7 +97,7 @@ Publish RSS items into Kafka:
 python -m producer.run_producer
 ```
 
-Consume Kafka messages and write them to HDFS:
+Consume Kafka messages and write them to HDFS raw storage:
 
 ```bash
 python -m consumer.kafka_consumer_to_hdfs --max-messages 50
@@ -100,10 +105,22 @@ python -m consumer.kafka_consumer_to_hdfs --max-messages 50
 
 When the consumer runs from WSL/local and `HDFS_URL` points to `localhost`, it automatically rewrites WebHDFS redirects back to `localhost` so it can upload to the exposed DataNode port.
 
+Transform the latest raw file into processed Parquet:
+
+```bash
+python -m Spark_jobs.transform_news_raw_to_processed --input-path /news/raw --output-path /news/processed
+```
+
 Validate HDFS output:
 
 ```bash
-python scripts/validate_hdfs_output.py --path /news/raw
+python -m scripts.validate_hdfs_output --path /news/raw
+```
+
+Validate processed output:
+
+```bash
+python -m scripts.validate_processed_output --path /news/processed
 ```
 
 Run the full MVP smoke test:
@@ -115,22 +132,30 @@ bash scripts/test_pipeline.sh
 Preview the latest HDFS file in a readable format:
 
 ```bash
-python scripts/preview_hdfs_data.py --path /news/raw --limit 5
+python -m scripts.preview_hdfs_data --path /news/raw --limit 5
 ```
 
 You can also preview a specific file:
 
 ```bash
-python scripts/preview_hdfs_data.py --path /news/raw/2026/03/14/news_145545.jsonl --limit 3
+python -m scripts.preview_hdfs_data --path /news/raw/2026/03/14/news_145545.jsonl --limit 3
 ```
 
 ## HDFS Output Layout
 
-The consumer writes files under:
+The consumer writes raw files under:
 
 ```text
 /news/raw/YYYY/MM/DD/news_HHMMSS.jsonl
 ```
+
+The Spark transform writes processed Parquet batches under:
+
+```text
+/news/processed/YYYY/MM/DD/news_HHMMSS/
+```
+
+See `docs/data_contract.md` for the shared article schema and validation rules.
 
 ## Airflow Phase
 
@@ -142,6 +167,8 @@ Files involved:
 - `dags/news_pipeline_dag.py`
 - `requirements-airflow.txt`
 - `scripts/start_airflow.sh`
+- `Spark_jobs/transform_news_raw_to_processed.py`
+- `scripts/validate_processed_output.py`
 
 Start Airflow:
 
@@ -169,3 +196,13 @@ The DAG runs the same commands you already verified manually, but inside Docker 
 - Kafka: `kafka:29092`
 - HDFS NameNode: `namenode:9870`
 - WebHDFS redirect host: `datanode`
+
+The phase-1 DAG order is now:
+
+```text
+publish_to_kafka
+  -> consume_and_store_hdfs
+  -> validate_hdfs_output
+  -> transform_raw_to_processed
+  -> validate_processed_output
+```

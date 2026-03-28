@@ -40,8 +40,26 @@ with DAG(
         task_id="validate_hdfs_output",
         bash_command=(
             f"cd {PROJECT_ROOT} && "
-            "python scripts/validate_hdfs_output.py --path /news/raw"
+            "python -m scripts.validate_hdfs_output --path /news/raw"
+        ),
+    )
+
+    transform_raw_to_processed = BashOperator(
+        task_id="transform_raw_to_processed",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            "python -m Spark_jobs.transform_news_raw_to_processed "
+            "--input-path /news/raw --output-path /news/processed"
+        ),
+    )
+
+    validate_processed_output = BashOperator(
+        task_id="validate_processed_output",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            "python -m scripts.validate_processed_output --path /news/processed"
         ),
     )
 
     publish_to_kafka >> consume_and_store_hdfs >> validate_hdfs_output
+    validate_hdfs_output >> transform_raw_to_processed >> validate_processed_output

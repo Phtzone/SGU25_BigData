@@ -1,0 +1,136 @@
+[2026-03-28T13:51:48.746+0000] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2026-03-28T13:51:48.775+0000] {taskinstance.py:2631} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: news_pipeline.publish_to_kafka scheduled__2026-03-24T04:00:00+00:00 [queued]>
+[2026-03-28T13:51:48.785+0000] {taskinstance.py:2631} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: news_pipeline.publish_to_kafka scheduled__2026-03-24T04:00:00+00:00 [queued]>
+[2026-03-28T13:51:48.786+0000] {taskinstance.py:2884} INFO - Starting attempt 1 of 2
+[2026-03-28T13:51:48.802+0000] {taskinstance.py:2907} INFO - Executing <Task(BashOperator): publish_to_kafka> on 2026-03-24 04:00:00+00:00
+[2026-03-28T13:51:48.823+0000] {logging_mixin.py:190} WARNING - /home/***/.local/lib/python3.12/site-packages/***/task/task_runner/standard_task_runner.py:70 DeprecationWarning: This process (pid=179) is multi-threaded, use of fork() may lead to deadlocks in the child.
+[2026-03-28T13:51:48.822+0000] {standard_task_runner.py:104} INFO - Running: ['***', 'tasks', 'run', 'news_pipeline', 'publish_to_kafka', 'scheduled__2026-03-24T04:00:00+00:00', '--job-id', '43', '--raw', '--subdir', 'DAGS_FOLDER/news_pipeline_dag.py', '--cfg-path', '/tmp/tmpm56mvre_']
+[2026-03-28T13:51:48.827+0000] {standard_task_runner.py:72} INFO - Started process 181 to run task
+[2026-03-28T13:51:48.827+0000] {standard_task_runner.py:105} INFO - Job 43: Subtask publish_to_kafka
+[2026-03-28T13:51:48.949+0000] {task_command.py:467} INFO - Running <TaskInstance: news_pipeline.publish_to_kafka scheduled__2026-03-24T04:00:00+00:00 [running]> on host c731bc5f5a3c
+[2026-03-28T13:51:49.058+0000] {taskinstance.py:3157} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='codex' AIRFLOW_CTX_DAG_ID='news_pipeline' AIRFLOW_CTX_TASK_ID='publish_to_kafka' AIRFLOW_CTX_EXECUTION_DATE='2026-03-24T04:00:00+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='scheduled__2026-03-24T04:00:00+00:00'
+[2026-03-28T13:51:49.059+0000] {taskinstance.py:740} INFO - ::endgroup::
+[2026-03-28T13:51:49.103+0000] {subprocess.py:78} INFO - Tmp dir root location: /tmp
+[2026-03-28T13:51:49.104+0000] {subprocess.py:88} INFO - Running command: ['/usr/bin/bash', '-c', 'cd /opt/***/project && python -m producer.run_producer']
+[2026-03-28T13:51:49.114+0000] {subprocess.py:99} INFO - Output:
+[2026-03-28T13:51:51.185+0000] {subprocess.py:106} INFO - Fetching from VNExpress...
+[2026-03-28T13:51:51.188+0000] {subprocess.py:106} INFO - Fetched 49 articles from VNExpress
+[2026-03-28T13:51:51.193+0000] {subprocess.py:106} INFO - Fetching from VTV...
+[2026-03-28T13:51:51.194+0000] {subprocess.py:106} INFO - Fetched 60 articles from VTV
+[2026-03-28T13:51:51.194+0000] {subprocess.py:106} INFO - Total unique articles: 109
+[2026-03-28T13:51:51.195+0000] {subprocess.py:106} INFO - Sent: Cơ sở thẩm mỹ 'biến mất' khi khách hàng sưng cứng mặt do tiêm filler
+[2026-03-28T13:51:51.196+0000] {subprocess.py:106} INFO - Sent: FedEx hợp tác OneRail triển khai giao hàng trong 2 giờ
+[2026-03-28T13:51:51.197+0000] {subprocess.py:106} INFO - Sent: Mbappe áp sát kỷ lục ghi bàn mọi thời ở tuyển Pháp
+[2026-03-28T13:51:51.197+0000] {subprocess.py:106} INFO - Sent: Tình thế đảo ngược sau một tháng chiến sự Iran
+[2026-03-28T13:51:51.198+0000] {subprocess.py:106} INFO - Sent: Trung Quốc phát triển tàu lặn ngắm cảnh sâu 1.000 m
+[2026-03-28T13:51:51.199+0000] {subprocess.py:106} INFO - Sent: Tôi sợ hết đường bỏ phố về quê nếu mua nhà 4 tỷ cho con thừa kế
+[2026-03-28T13:51:51.199+0000] {subprocess.py:106} INFO - Sent: Tháp Chăm cao nhất Đông Nam Á ở tỉnh nào?
+[2026-03-28T13:51:51.200+0000] {subprocess.py:106} INFO - Sent: Những khí tài đắt nhất của Mỹ bị hư hại sau một tháng xung đột
+[2026-03-28T13:51:51.201+0000] {subprocess.py:106} INFO - Sent: Nữ sinh không tay từ chối ưu ái, quyết tâm thành cô giáo
+[2026-03-28T13:51:51.202+0000] {subprocess.py:106} INFO - Sent: Mẹ rụng tóc từng mảng vì áp lực dạy con học
+[2026-03-28T13:51:51.204+0000] {subprocess.py:106} INFO - Sent: Tiểu máu có phải dấu hiệu ung thư bàng quang?
+[2026-03-28T13:51:51.205+0000] {subprocess.py:106} INFO - Sent: Phong cách đời thường của Meghan Markle
+[2026-03-28T13:51:51.206+0000] {subprocess.py:106} INFO - Sent: Xuân Son: ‘Mọi thứ đều sai khi tôi không ghi bàn’
+[2026-03-28T13:51:51.207+0000] {subprocess.py:106} INFO - Sent: Bé 10 tháng tử vong trong bữa cháo ở nhà trẻ
+[2026-03-28T13:51:51.208+0000] {subprocess.py:106} INFO - Sent: Ngân sách tạm ứng 8.000 tỷ đồng cho Quỹ bình ổn giá xăng dầu
+[2026-03-28T13:51:51.209+0000] {subprocess.py:106} INFO - Sent: Hà Nội định hướng sau năm 2065 dân số không quá 20 triệu
+[2026-03-28T13:51:51.210+0000] {subprocess.py:106} INFO - Sent: Đường dây tiền số ONUS lập 52 công ty 'chiếm đoạt hàng chục nghìn tỷ đồng'
+[2026-03-28T13:51:51.210+0000] {subprocess.py:106} INFO - Sent: Việt Nam khai trương đại sứ quán tại Ireland
+[2026-03-28T13:51:51.211+0000] {subprocess.py:106} INFO - Sent: Chồng bắt tôi đi theo dõi bồ của anh vào khách sạn
+[2026-03-28T13:51:51.211+0000] {subprocess.py:106} INFO - Sent: Ưu điểm của Macbook Neo trong phân khúc laptop tầm trung
+[2026-03-28T13:51:51.212+0000] {subprocess.py:106} INFO - Sent: 7 thực phẩm tăng khả năng mang thai cho phụ nữ
+[2026-03-28T13:51:51.212+0000] {subprocess.py:106} INFO - Sent: Xung đột Trung Đông bắt đầu bào mòn lợi nhuận doanh nghiệp Việt
+[2026-03-28T13:51:51.213+0000] {subprocess.py:106} INFO - Sent: Tổng thống Iran nêu điều kiện đàm phán hòa bình
+[2026-03-28T13:51:51.214+0000] {subprocess.py:106} INFO - Sent: Vingroup trúng đấu giá khu đất gần 50 ha tại đảo Vũ Yên, Hải Phòng
+[2026-03-28T13:51:51.214+0000] {subprocess.py:106} INFO - Sent: Điểm tin 17h: Mỹ có thể sắp điều tàu sân bay thứ ba đến gần Iran | Bộ Tài chính đề xuất giảm thuế xăng, dầu về 0 đến hết tháng 6
+[2026-03-28T13:51:51.215+0000] {subprocess.py:106} INFO - Sent: Cách pha nước mắm chua ngọt tỏi ớt luôn nổi
+[2026-03-28T13:51:51.216+0000] {subprocess.py:106} INFO - Sent: Khánh thành bếp ăn bán trú cho trẻ mầm non vùng cao
+[2026-03-28T13:51:51.217+0000] {subprocess.py:106} INFO - Sent: Nên dùng thuốc hay laser chữa nám da?
+[2026-03-28T13:51:51.217+0000] {subprocess.py:106} INFO - Sent: 6 vấn đề mắt thường gặp ở phụ nữ sau tuổi 50
+[2026-03-28T13:51:51.218+0000] {subprocess.py:106} INFO - Sent: 6 mẹo giúp bạn bỏ thói quen ngủ nướng
+[2026-03-28T13:51:51.219+0000] {subprocess.py:106} INFO - Sent: Điều gì xảy ra với cơ thể khi bỏ bữa?
+[2026-03-28T13:51:51.219+0000] {subprocess.py:106} INFO - Sent: U23 Việt Nam thua Thái Lan ở giải giao hữu Trung Quốc
+[2026-03-28T13:51:51.220+0000] {subprocess.py:106} INFO - Sent: Kiếm tiền bằng nghề đứng xếp hàng thuê
+[2026-03-28T13:51:51.220+0000] {subprocess.py:106} INFO - Sent: Cháy xe tải trên cao tốc Cam Lâm - Vĩnh Hảo, ùn tắc kéo dài
+[2026-03-28T13:51:51.221+0000] {subprocess.py:106} INFO - Sent: Phi hành đoàn Artemis 2 đến bãi phóng, sẵn sàng tới Mặt Trăng
+[2026-03-28T13:51:51.221+0000] {subprocess.py:106} INFO - Sent: Ba năm giữ vương miện Miss World Vietnam của Ý Nhi
+[2026-03-28T13:51:51.222+0000] {subprocess.py:106} INFO - Sent: Áo đấu VM Green Paradise Cần Giờ 2026 mang sắc xanh thiên nhiên
+[2026-03-28T13:51:51.222+0000] {subprocess.py:106} INFO - Sent: Việt Nam lần đầu công nhận kỹ thuật ECPR cứu người ngưng tim
+[2026-03-28T13:51:51.223+0000] {subprocess.py:106} INFO - Sent: Ở tuổi 37, tôi chọn đàn ông chưa từng có vợ hay người đã đổ vỡ
+[2026-03-28T13:51:51.223+0000] {subprocess.py:106} INFO - Sent: Tìm lại được túi xách có tài sản hơn 3 tỷ đồng quên trên taxi
+[2026-03-28T13:51:51.224+0000] {subprocess.py:106} INFO - Sent: 9 lợi ích ít biết của vỏ chanh
+[2026-03-28T13:51:51.224+0000] {subprocess.py:106} INFO - Sent: Ăn thịt bò mỗi ngày để bổ máu?
+[2026-03-28T13:51:51.224+0000] {subprocess.py:106} INFO - Sent: Hướng Việt Properties đặt mục tiêu phát triển bất động sản bền vững
+[2026-03-28T13:51:51.225+0000] {subprocess.py:106} INFO - Sent: Lãnh đạo Vatican lần đầu thăm Monaco sau gần 500 năm
+[2026-03-28T13:51:51.226+0000] {subprocess.py:106} INFO - Sent: Khách Việt kể hai lần bị móc túi hụt ở châu Âu
+[2026-03-28T13:51:51.226+0000] {subprocess.py:106} INFO - Sent: Cuộc sống của tôi sau khi nghỉ hưu sớm tuổi 45
+[2026-03-28T13:51:51.227+0000] {subprocess.py:106} INFO - Sent: Đồng Nai thêm 10 phường sau sáp nhập, mở rộng không gian đô thị
+[2026-03-28T13:51:51.227+0000] {subprocess.py:106} INFO - Sent: Vừa cận vừa lão thị có mổ mắt được không?
+[2026-03-28T13:51:51.228+0000] {subprocess.py:106} INFO - Sent: Người tiểu đường nên ăn tinh bột khi nào?
+[2026-03-28T13:51:51.228+0000] {subprocess.py:106} INFO - Sent: Mộc Sơn, Sơn La lan tỏa giá trị từ Lễ hội Hết Chá
+[2026-03-28T13:51:51.229+0000] {subprocess.py:106} INFO - Sent: Đề xuất xây dựng khung chuyển đổi AI quốc gia, kiến tạo nền kinh tế AI
+[2026-03-28T13:51:51.229+0000] {subprocess.py:106} INFO - Sent: Đưa Gia Lai trở thành nơi thu hút nhân tài trong kỷ nguyên AI
+[2026-03-28T13:51:51.230+0000] {subprocess.py:106} INFO - Sent: Đề xuất "Ngày Văn hóa Việt Nam", người lao động được nghỉ, hưởng nguyên lương
+[2026-03-28T13:51:51.230+0000] {subprocess.py:106} INFO - Sent: Xã Phù Đổng (Hà Nội) bứt tốc phát triển kinh tế - xã hội, tạo nền tảng vững chắc cho năm 2026
+[2026-03-28T13:51:51.230+0000] {subprocess.py:106} INFO - Sent: Phó Thủ tướng Thường trực Nguyễn Hòa Bình thăm Tổng Lãnh sự quán Việt Nam tại San Francisco
+[2026-03-28T13:51:51.231+0000] {subprocess.py:106} INFO - Sent: Thủ tướng Phạm Minh Chính: Phát triển công nghệ chiến lược giải quyết các bài toán thực tiễn của Việt Nam
+[2026-03-28T13:51:51.231+0000] {subprocess.py:106} INFO - Sent: Nỗ lực khống chế đám cháy rừng và cháy bãi rác ở Lâm Đồng
+[2026-03-28T13:51:51.231+0000] {subprocess.py:106} INFO - Sent: Nhiều hoạt động ý nghĩa trong “Festival Phụ nữ Thủ đô vì hòa bình, phát triển” năm 2026
+[2026-03-28T13:51:51.232+0000] {subprocess.py:106} INFO - Sent: Ẩu đả từ mâu thuẫn hàng xóm, nhiều người bị thương
+[2026-03-28T13:51:51.232+0000] {subprocess.py:106} INFO - Sent: Tô Dũng suýt bỏ nghề trước khi tỏa sáng ở Cánh diều
+[2026-03-28T13:51:51.233+0000] {subprocess.py:106} INFO - Sent: Xe tải bốc cháy dữ dội trên cao tốc, giao thông ách tắc hơn 1 km
+[2026-03-28T13:51:51.234+0000] {subprocess.py:106} INFO - Sent: Xếp lương đối với công chức được tuyển dụng từ 1/3/2026
+[2026-03-28T13:51:51.234+0000] {subprocess.py:106} INFO - Sent: Tháo gỡ 6 'điểm nghẽn' để triển khai Đề án 06
+[2026-03-28T13:51:51.235+0000] {subprocess.py:106} INFO - Sent: Hà Nội thông qua quy hoạch Thủ đô tầm nhìn 100 năm: Định hình đại đô thị toàn cầu
+[2026-03-28T13:51:51.235+0000] {subprocess.py:106} INFO - Sent: Đón xem 'Chợ quê di dộng' trên VTV Cần Thơ
+[2026-03-28T13:51:51.236+0000] {subprocess.py:106} INFO - Sent: Đồng hồ đếm ngược: Quá khứ đau đớn của mẹ Thành - bị bạn trai bán vào nhà thổ
+[2026-03-28T13:51:51.237+0000] {subprocess.py:106} INFO - Sent: IAEA cảnh báo mất an toàn hạt nhân tại Iran
+[2026-03-28T13:51:51.237+0000] {subprocess.py:106} INFO - Sent: Phẫu thuật nội soi giúp người phụ nữ 73 tuổi trút bỏ mặc cảm 20 năm vì sa sinh dục
+[2026-03-28T13:51:51.238+0000] {subprocess.py:106} INFO - Sent: Nữ sinh nghèo Thái Nguyên và hành trình viết tiếp giấc mơ đến trường
+[2026-03-28T13:51:51.239+0000] {subprocess.py:106} INFO - Sent: Trái tim cho em mang lại nhịp đập mới cho bệnh nhi tại Sơn La
+[2026-03-28T13:51:51.239+0000] {subprocess.py:106} INFO - Sent: Hạnh phúc vỡ òa khi được ra viện của bệnh nhi 6 tháng tuổi mắc tim bẩm sinh
+[2026-03-28T13:51:51.240+0000] {subprocess.py:106} INFO - Sent: Thủ tướng chủ trì Phiên họp về phát triển KHCN, đổi mới sáng tạo, chuyển đổi số và Đề án 06
+[2026-03-28T13:51:51.240+0000] {subprocess.py:106} INFO - Sent: Thận trọng tránh “bẫy” lừa đảo mùa du lịch cao điểm
+[2026-03-28T13:51:51.241+0000] {subprocess.py:106} INFO - Sent: Mở sân chơi cho thế hệ trẻ phát huy tính sáng tạo, xây dựng môi trường số lành mạnh
+[2026-03-28T13:51:51.241+0000] {subprocess.py:106} INFO - Sent: Thái Nguyên: Hướng tới mục tiêu đón 12 triệu lượt khách, doanh thu 25.000 tỷ đồng
+[2026-03-28T13:51:51.242+0000] {subprocess.py:106} INFO - Sent: Triệt phá tụ điểm đánh bạc ven sông, tạm giữ hình sự 8 đối tượng ở Đồng Nai
+[2026-03-28T13:51:51.242+0000] {subprocess.py:106} INFO - Sent: Một quả bơ mỗi ngày có tốt cho tim mạch?
+[2026-03-28T13:51:51.243+0000] {subprocess.py:106} INFO - Sent: Di tích khảo cổ Cát Tiên “bảo tàng ngoài trời” vô cùng bí ẩn độc đáo
+[2026-03-28T13:51:51.243+0000] {subprocess.py:106} INFO - Sent: Lâm Đồng: Dịch chuyển dòng khách hè về biển Mũi Né - Phan Thiết
+[2026-03-28T13:51:51.244+0000] {subprocess.py:106} INFO - Sent: Những chiếc xe trâu nơi miền cát trắng
+[2026-03-28T13:51:51.244+0000] {subprocess.py:106} INFO - Sent: Bộ Công an khởi công Dự án nhà ở cho lực lượng vũ trang Công an nhân dân tại Ninh Bình
+[2026-03-28T13:51:51.245+0000] {subprocess.py:106} INFO - Sent: Cảnh giác cuộc gọi lạ liên quan trẻ sơ sinh
+[2026-03-28T13:51:51.245+0000] {subprocess.py:106} INFO - Sent: Khoa học Xã hội & Nhân văn với việc bảo vệ nền tảng tư tưởng của Đảng trong thời đại số
+[2026-03-28T13:51:51.246+0000] {subprocess.py:106} INFO - Sent: Thiếu máu nặng ở trẻ sơ sinh: Phát hiện sớm để tránh biến chứng
+[2026-03-28T13:51:51.246+0000] {subprocess.py:106} INFO - Sent: Chẩn đoán kịp thời cứu sống bệnh nhân sốc nhiễm khuẩn nặng
+[2026-03-28T13:51:51.247+0000] {subprocess.py:106} INFO - Sent: Lâm Đồng: Cháy bãi rác, khói bao trùm khu dân cư
+[2026-03-28T13:51:51.247+0000] {subprocess.py:106} INFO - Sent: Gia Lai khẳng định sức hút đầu tư, mở không gian tăng trưởng mới
+[2026-03-28T13:51:51.248+0000] {subprocess.py:106} INFO - Sent: Hà Nội: Xử phạt người điều khiển xe khách dán quảng cáo kín xe lưu thông trên đường
+[2026-03-28T13:51:51.249+0000] {subprocess.py:106} INFO - Sent: Houthi tuyên bố "sẵn sàng khai hỏa" khi cuộc chiến chống lại Iran leo thang
+[2026-03-28T13:51:51.249+0000] {subprocess.py:106} INFO - Sent: Đại học Công nghệ Đông Á – Nơi kiến thức không chỉ nằm trên trang sách mà được đánh thức bằng trải nghiệm thực tiễn
+[2026-03-28T13:51:51.250+0000] {subprocess.py:106} INFO - Sent: Chi tạm ứng 8.000 tỷ đồng cho Quỹ Bình ổn giá xăng dầu
+[2026-03-28T13:51:51.250+0000] {subprocess.py:106} INFO - Sent: Tổng Bí thư Tô Lâm: Hoàn thiện thể chế phát triển thể dục thể thao hiện đại, đồng bộ
+[2026-03-28T13:51:51.251+0000] {subprocess.py:106} INFO - Sent: Một số quy định mới về quản lý nợ công
+[2026-03-28T13:51:51.251+0000] {subprocess.py:106} INFO - Sent: Lan tỏa tinh thần biển đảo trong cộng đồng doanh nhân Thủ đô
+[2026-03-28T13:51:51.252+0000] {subprocess.py:106} INFO - Sent: Dàn sao phim “Goblin” tái hợp sau 10 năm
+[2026-03-28T13:51:51.252+0000] {subprocess.py:106} INFO - Sent: Quy định về công khai ngân sách cấp xã
+[2026-03-28T13:51:51.253+0000] {subprocess.py:106} INFO - Sent: Tô Dũng và thành công không tưởng với vai diễn vốn "không dành cho mình"
+[2026-03-28T13:51:51.253+0000] {subprocess.py:106} INFO - Sent: Công tác trên 10 năm ở vùng khó khăn, nghỉ hưu có được trợ cấp một lần?
+[2026-03-28T13:51:51.254+0000] {subprocess.py:106} INFO - Sent: Bé người nước ngoài lạc giữa Hà Nội được công an giúp đỡ kịp thời
+[2026-03-28T13:51:51.254+0000] {subprocess.py:106} INFO - Sent: Mất gần 150 triệu đồng vì tin lời hướng dẫn làm hồ sơ nhà đất online
+[2026-03-28T13:51:51.255+0000] {subprocess.py:106} INFO - Sent: Xét nâng lương thường xuyên với viên chức đã có thời gian công tác
+[2026-03-28T13:51:51.255+0000] {subprocess.py:106} INFO - Sent: Tổng thống Trump tuyên bố Cuba sẽ là mục tiêu tiếp theo của Mỹ
+[2026-03-28T13:51:51.256+0000] {subprocess.py:106} INFO - Sent: Ngoại trưởng Nga và người đồng cấp Iran thảo luận về khả năng giải quyết xung đột Trung Đông
+[2026-03-28T13:51:51.256+0000] {subprocess.py:106} INFO - Sent: Iran tấn công căn cứ ở Saudi Arabia, khiến nhiều binh sĩ Mỹ bị thương
+[2026-03-28T13:51:51.257+0000] {subprocess.py:106} INFO - Sent: Kiện toàn nhân sự lãnh đạo HĐND, UBND tỉnh Đồng Nai nhiệm kỳ 2026 - 2031
+[2026-03-28T13:51:51.257+0000] {subprocess.py:106} INFO - Sent: Hàng nghìn hoa loa kèn phủ trắng Nhà Bát Giác trước giờ G concert “Hà Nội bình yên”
+[2026-03-28T13:51:51.257+0000] {subprocess.py:106} INFO - Sent: Phát biểu của Tổng Bí thư Tô Lâm tại Lễ kỷ niệm 80 năm Ngày truyền thống ngành Thể dục thể thao Việt Nam
+[2026-03-28T13:51:51.258+0000] {subprocess.py:106} INFO - Sent: Bí thư Hà Nội: Đánh giá cán bộ bằng KPI, kiên quyết thay thế người yếu kém
+[2026-03-28T13:51:51.258+0000] {subprocess.py:106} INFO - Sent: Lan tỏa nghĩa cử cao đẹp tại chương trình hiến máu "Nối vòng tay tình nguyện" năm 2026
+[2026-03-28T13:51:51.258+0000] {subprocess.py:106} INFO - All articles sent to Kafka topic 'news_raw'
+[2026-03-28T13:51:51.279+0000] {subprocess.py:110} INFO - Command exited with return code 0
+[2026-03-28T13:51:51.306+0000] {taskinstance.py:349} INFO - ::group::Post task execution logs
+[2026-03-28T13:51:51.307+0000] {taskinstance.py:361} INFO - Marking task as SUCCESS. dag_id=news_pipeline, task_id=publish_to_kafka, run_id=scheduled__2026-03-24T04:00:00+00:00, execution_date=20260324T040000, start_date=20260328T135148, end_date=20260328T135151
+[2026-03-28T13:51:51.372+0000] {local_task_job_runner.py:266} INFO - Task exited with return code 0
+[2026-03-28T13:51:51.401+0000] {taskinstance.py:3924} INFO - 1 downstream tasks scheduled from follow-on schedule check
+[2026-03-28T13:51:51.403+0000] {local_task_job_runner.py:245} INFO - ::endgroup::

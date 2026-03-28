@@ -1,0 +1,133 @@
+[2026-03-24T03:38:57.187+0000] {local_task_job_runner.py:123} INFO - ::group::Pre task execution logs
+[2026-03-24T03:38:57.211+0000] {taskinstance.py:2631} INFO - Dependencies all met for dep_context=non-requeueable deps ti=<TaskInstance: news_pipeline.publish_to_kafka scheduled__2026-03-16T07:30:00+00:00 [queued]>
+[2026-03-24T03:38:57.222+0000] {taskinstance.py:2631} INFO - Dependencies all met for dep_context=requeueable deps ti=<TaskInstance: news_pipeline.publish_to_kafka scheduled__2026-03-16T07:30:00+00:00 [queued]>
+[2026-03-24T03:38:57.222+0000] {taskinstance.py:2884} INFO - Starting attempt 1 of 2
+[2026-03-24T03:38:57.237+0000] {taskinstance.py:2907} INFO - Executing <Task(BashOperator): publish_to_kafka> on 2026-03-16 07:30:00+00:00
+[2026-03-24T03:38:57.246+0000] {logging_mixin.py:190} WARNING - /home/***/.local/lib/python3.12/site-packages/***/task/task_runner/standard_task_runner.py:70 DeprecationWarning: This process (pid=180) is multi-threaded, use of fork() may lead to deadlocks in the child.
+[2026-03-24T03:38:57.248+0000] {standard_task_runner.py:72} INFO - Started process 186 to run task
+[2026-03-24T03:38:57.247+0000] {standard_task_runner.py:104} INFO - Running: ['***', 'tasks', 'run', 'news_pipeline', 'publish_to_kafka', 'scheduled__2026-03-16T07:30:00+00:00', '--job-id', '28', '--raw', '--subdir', 'DAGS_FOLDER/news_pipeline_dag.py', '--cfg-path', '/tmp/tmpdmtlerrq']
+[2026-03-24T03:38:57.250+0000] {standard_task_runner.py:105} INFO - Job 28: Subtask publish_to_kafka
+[2026-03-24T03:38:57.332+0000] {task_command.py:467} INFO - Running <TaskInstance: news_pipeline.publish_to_kafka scheduled__2026-03-16T07:30:00+00:00 [running]> on host af36cc475ae2
+[2026-03-24T03:38:57.440+0000] {taskinstance.py:3157} INFO - Exporting env vars: AIRFLOW_CTX_DAG_OWNER='codex' AIRFLOW_CTX_DAG_ID='news_pipeline' AIRFLOW_CTX_TASK_ID='publish_to_kafka' AIRFLOW_CTX_EXECUTION_DATE='2026-03-16T07:30:00+00:00' AIRFLOW_CTX_TRY_NUMBER='1' AIRFLOW_CTX_DAG_RUN_ID='scheduled__2026-03-16T07:30:00+00:00'
+[2026-03-24T03:38:57.441+0000] {taskinstance.py:740} INFO - ::endgroup::
+[2026-03-24T03:38:57.476+0000] {subprocess.py:78} INFO - Tmp dir root location: /tmp
+[2026-03-24T03:38:57.477+0000] {subprocess.py:88} INFO - Running command: ['/usr/bin/bash', '-c', 'cd /opt/***/project && python -m producer.run_producer']
+[2026-03-24T03:38:57.486+0000] {subprocess.py:99} INFO - Output:
+[2026-03-24T03:39:00.202+0000] {subprocess.py:106} INFO - Fetching from VNExpress...
+[2026-03-24T03:39:00.204+0000] {subprocess.py:106} INFO - Fetched 47 articles from VNExpress
+[2026-03-24T03:39:00.204+0000] {subprocess.py:106} INFO - Fetching from VTV...
+[2026-03-24T03:39:00.205+0000] {subprocess.py:106} INFO - Fetched 60 articles from VTV
+[2026-03-24T03:39:00.206+0000] {subprocess.py:106} INFO - Total unique articles: 107
+[2026-03-24T03:39:00.207+0000] {subprocess.py:106} INFO - Sent: Gần 200 nghệ sĩ biểu diễn ra mắt Dàn nhạc Giao hưởng Quân đội
+[2026-03-24T03:39:00.208+0000] {subprocess.py:106} INFO - Sent: Con gì ai cũng gọi là 'bố'?
+[2026-03-24T03:39:00.209+0000] {subprocess.py:106} INFO - Sent: Khoảnh khắc máy bay Canada đâm vào xe cứu hỏa trên đường băng
+[2026-03-24T03:39:00.210+0000] {subprocess.py:106} INFO - Sent: Quân đội Iran 'không cần thủy lôi' để kiểm soát eo biển Hormuz
+[2026-03-24T03:39:00.210+0000] {subprocess.py:106} INFO - Sent: Con riêng của bố về nội nhận họ hàng sau 18 năm
+[2026-03-24T03:39:00.211+0000] {subprocess.py:106} INFO - Sent: Khối tài sản 'khủng' của Mr Pips khi bị thu giữ gồm những gì?
+[2026-03-24T03:39:00.212+0000] {subprocess.py:106} INFO - Sent: Robot hình người Hàn Quốc nhảy moonwalk, đá bóng
+[2026-03-24T03:39:00.213+0000] {subprocess.py:106} INFO - Sent: Solaria Rise hưởng lợi nhu cầu ở thực tại khu Tây TP HCM
+[2026-03-24T03:39:00.216+0000] {subprocess.py:106} INFO - Sent: Dải phân cách tự động dịch chuyển theo lưu lượng xe
+[2026-03-24T03:39:00.217+0000] {subprocess.py:106} INFO - Sent: Iran tuyên bố sẽ chiến đấu tới khi được bồi thường
+[2026-03-24T03:39:00.218+0000] {subprocess.py:106} INFO - Sent: Giá vàng thế giới tăng trở lại
+[2026-03-24T03:39:00.219+0000] {subprocess.py:106} INFO - Sent: Bé gái 11 tuổi ở An Giang thoát án tử não mô cầu
+[2026-03-24T03:39:00.220+0000] {subprocess.py:106} INFO - Sent: 17 người nghi ngộ độc sau khi ăn bánh mì xe đẩy
+[2026-03-24T03:39:00.220+0000] {subprocess.py:106} INFO - Sent: 5 thực phẩm bổ gan, thận nên dùng thường xuyên
+[2026-03-24T03:39:00.220+0000] {subprocess.py:106} INFO - Sent: HLV Rajagobal: 'Việt Nam có thể tự mãn khi gặp Malaysia'
+[2026-03-24T03:39:00.221+0000] {subprocess.py:106} INFO - Sent: Chim Oxpecker - 'bác sĩ' của động vật ở châu Phi
+[2026-03-24T03:39:00.223+0000] {subprocess.py:106} INFO - Sent: CEO Cloudflare: 'Lượng truy cập của bot vượt con người năm 2027'
+[2026-03-24T03:39:00.224+0000] {subprocess.py:106} INFO - Sent: Mt Fuji GX Holdings chọn Việt Nam làm trung tâm R&amp;D công nghệ
+[2026-03-24T03:39:00.225+0000] {subprocess.py:106} INFO - Sent: Lợi thế 'ven biển, giữa rừng' giúp Cần Giờ hút du lịch thể thao
+[2026-03-24T03:39:00.230+0000] {subprocess.py:106} INFO - Sent: Đau dây thần kinh số 5 có phải do stress?
+[2026-03-24T03:39:00.231+0000] {subprocess.py:106} INFO - Sent: Xơ gan sau 25 năm uống rượu
+[2026-03-24T03:39:00.234+0000] {subprocess.py:106} INFO - Sent: Cắt toàn bộ tuyến giáp có giảm tuổi thọ không?
+[2026-03-24T03:39:00.235+0000] {subprocess.py:106} INFO - Sent: Ai nên tầm soát bệnh di truyền trước mang thai?
+[2026-03-24T03:39:00.236+0000] {subprocess.py:106} INFO - Sent: MB dẫn đầu thị trường về tốc độ giải ngân vốn cho doanh nghiệp nhỏ
+[2026-03-24T03:39:00.236+0000] {subprocess.py:106} INFO - Sent: Bạn gái Ronaldo khoe giàu
+[2026-03-24T03:39:00.237+0000] {subprocess.py:106} INFO - Sent: Zidane chuẩn bị dẫn dắt tuyển Pháp
+[2026-03-24T03:39:00.237+0000] {subprocess.py:106} INFO - Sent: Những kiểu mốt mùa xuân sao Việt theo đuổi
+[2026-03-24T03:39:00.238+0000] {subprocess.py:106} INFO - Sent: Nhà máy điện than trên 40 năm không chuyển đổi nhiên liệu có thể bị đóng cửa
+[2026-03-24T03:39:00.238+0000] {subprocess.py:106} INFO - Sent: Thủ khoa đạt điểm cao nhất lịch sử thi đánh giá tư duy Bách khoa Hà Nội
+[2026-03-24T03:39:00.239+0000] {subprocess.py:106} INFO - Sent: Toyota Land Cruiser FJ ra mắt Đông Nam Á, giá 40.000 USD
+[2026-03-24T03:39:00.240+0000] {subprocess.py:106} INFO - Sent: Máy bay quân sự Colombia rơi khi cất cánh, 66 người thiệt mạng
+[2026-03-24T03:39:00.240+0000] {subprocess.py:106} INFO - Sent: Quẹt mỏi tay vẫn đụng mặt người quen trên app hẹn hò
+[2026-03-24T03:39:00.241+0000] {subprocess.py:106} INFO - Sent: Việt - Nga ký hiệp định về xây dựng nhà máy điện hạt nhân
+[2026-03-24T03:39:00.241+0000] {subprocess.py:106} INFO - Sent: Bí quyết giúp bà mẹ U40 sỡ hữu 'tuổi sinh học 17'
+[2026-03-24T03:39:00.242+0000] {subprocess.py:106} INFO - Sent: Hàng triệu người Mỹ tích trữ đồ đề phòng 'tận thế'
+[2026-03-24T03:39:00.242+0000] {subprocess.py:106} INFO - Sent: 18 người ngoài Đảng trúng cử Đại biểu Quốc hội khóa 16
+[2026-03-24T03:39:00.243+0000] {subprocess.py:106} INFO - Sent: Amazon đầu tư 400 triệu bảng xây kho robot tại Australia
+[2026-03-24T03:39:00.243+0000] {subprocess.py:106} INFO - Sent: Hàng không cắt giảm chuyến bay nội địa do thiếu nhiên liệu
+[2026-03-24T03:39:00.244+0000] {subprocess.py:106} INFO - Sent: Mẹo chửi thề của Sabalenka
+[2026-03-24T03:39:00.244+0000] {subprocess.py:106} INFO - Sent: Đề xuất phạt 20-30 triệu đồng với người tạo tin giả trên mạng
+[2026-03-24T03:39:00.244+0000] {subprocess.py:106} INFO - Sent: Chim cổ rắn săn cá giữa hồ ở Phú Mỹ Hưng
+[2026-03-24T03:39:00.245+0000] {subprocess.py:106} INFO - Sent: Cuộc đời Đức Hồng y Gioan Baotixita Phạm Minh Mẫn
+[2026-03-24T03:39:00.245+0000] {subprocess.py:106} INFO - Sent: Đại tướng Lương Tam Quang và 24 sĩ quan Công an là đại biểu Quốc hội khóa 16
+[2026-03-24T03:39:00.246+0000] {subprocess.py:106} INFO - Sent: Thủ khoa Học viện Quân y được phong hàm Thượng úy
+[2026-03-24T03:39:00.246+0000] {subprocess.py:106} INFO - Sent: 'Ép' vợ triệt sản
+[2026-03-24T03:39:00.247+0000] {subprocess.py:106} INFO - Sent: Phủ chăn kín ôtô điện để dập cháy
+[2026-03-24T03:39:00.247+0000] {subprocess.py:106} INFO - Sent: Cháy quán ăn ở TP HCM, hai mẹ con tử vong
+[2026-03-24T03:39:00.247+0000] {subprocess.py:106} INFO - Sent: Bé gái 6 tuổi sốc phản vệ do ong khoái đốt
+[2026-03-24T03:39:00.248+0000] {subprocess.py:106} INFO - Sent: Cứu sống ca nhồi máu cơ tim hiếm gặp
+[2026-03-24T03:39:00.248+0000] {subprocess.py:106} INFO - Sent: Ca hiến tạng thứ 4 tại Bệnh viện Đa khoa Xanh Pôn: Nối dài hành trình hồi sinh sự sống
+[2026-03-24T03:39:00.249+0000] {subprocess.py:106} INFO - Sent: Nội soi gắp dị vật kim loại, cứu sống bé 3 tuổi
+[2026-03-24T03:39:00.249+0000] {subprocess.py:106} INFO - Sent: Cảnh báo bỏng nặng do tự ý đắp thuốc nam
+[2026-03-24T03:39:00.249+0000] {subprocess.py:106} INFO - Sent: Quảng Ngãi: 11 trẻ nhập viện nghi ngộ độc sau ăn bánh mì
+[2026-03-24T03:39:00.250+0000] {subprocess.py:106} INFO - Sent: Lâm Đồng: Kết thúc theo dõi 84 ca tiếp xúc gần viêm màng não mô cầu
+[2026-03-24T03:39:00.250+0000] {subprocess.py:106} INFO - Sent: Khán giả "nín thở" xem Tăng Phúc nhảy tango
+[2026-03-24T03:39:00.250+0000] {subprocess.py:106} INFO - Sent: TP Hồ Chí Minh: Xử phạt 69 triệu đồng vụ khai thác đất không phép ở Bình Giã
+[2026-03-24T03:39:00.251+0000] {subprocess.py:106} INFO - Sent: Nhóm học sinh đánh hội đồng bạn, quay clip tung lên mạng gây bức xúc
+[2026-03-24T03:39:00.251+0000] {subprocess.py:106} INFO - Sent: Tìm ra các thí sinh xuất sắc của cuộc thi viết bằng tiếng Anh “Thánh Gióng và Giấc mơ khát vọng”
+[2026-03-24T03:39:00.251+0000] {subprocess.py:106} INFO - Sent: Bài viết của Tổng Bí thư Tô Lâm: Thanh niên với tương lai đất nước
+[2026-03-24T03:39:00.252+0000] {subprocess.py:106} INFO - Sent: Nhiều chủ doanh nghiệp ở Đà Nẵng mua bán hàng trăm hóa đơn khống, trị giá hàng chục tỷ đồng
+[2026-03-24T03:39:00.252+0000] {subprocess.py:106} INFO - Sent: Hà Nội: Cựu hiệu trưởng Trường THCS Ba Đình hầu tòa vì thu tiền dạy thêm vượt quy định
+[2026-03-24T03:39:00.252+0000] {subprocess.py:106} INFO - Sent: Bắt thêm 7 đối tượng trong vụ dàn cảnh cướp giật tại Liên Hoa Bảo Tháp
+[2026-03-24T03:39:00.253+0000] {subprocess.py:106} INFO - Sent: Thiếu nước sạch, hàng chục nghìn người dân xã Ba Vì  (Hà Nội) dùng nước giếng khoan có màu vàng, mùi tanh
+[2026-03-24T03:39:00.253+0000] {subprocess.py:106} INFO - Sent: Khai thác cát gây sạt lở bờ sông ở Nghệ An, đe dọa hàng chục ha đất sản xuất
+[2026-03-24T03:39:00.254+0000] {subprocess.py:106} INFO - Sent: Bước chân vào đời - Tập 14: Thương chia tay Quân
+[2026-03-24T03:39:00.254+0000] {subprocess.py:106} INFO - Sent: Va chạm xe khách trên Quốc lộ 6, ô tô con biến dạng
+[2026-03-24T03:39:00.254+0000] {subprocess.py:106} INFO - Sent: Nổ lớn điểm thu mua sắt vụn ở Thái Nguyên, 1 người đàn ông tử vong tại chỗ
+[2026-03-24T03:39:00.255+0000] {subprocess.py:106} INFO - Sent: "Danh tính" ô tô chuẩn gu cho gia đình trẻ mê dịch chuyển nhưng vẫn tối ưu chi tiêu
+[2026-03-24T03:39:00.255+0000] {subprocess.py:106} INFO - Sent: Nam chính 'Tuổi trẻ giá bao nhiêu' liên tiếp có phim ra rạp dịp 30/4
+[2026-03-24T03:39:00.256+0000] {subprocess.py:106} INFO - Sent: "Tủ sách Thanh niên" chắp cánh cho khát vọng tuổi trẻ
+[2026-03-24T03:39:00.256+0000] {subprocess.py:106} INFO - Sent: Giới thượng lưu đang “mua trước” tuổi già như thế nào?
+[2026-03-24T03:39:00.256+0000] {subprocess.py:106} INFO - Sent: Hà Nội “hạ nhiệt” áp lực tuyển sinh: Từ cảnh xếp hàng đến chiến lược xây trường
+[2026-03-24T03:39:00.257+0000] {subprocess.py:106} INFO - Sent: Khi giảng đường trở thành điểm hẹn của công nghệ và việc làm
+[2026-03-24T03:39:00.257+0000] {subprocess.py:106} INFO - Sent: Hà Nội: Nhờ camera AI, lưu lượng giao thông qua nút giao cải thiện đến 18%
+[2026-03-24T03:39:00.258+0000] {subprocess.py:106} INFO - Sent: Bước chân vào đời - Tập 13: Bị mẹ Quân xúc phạm nặng nề, bà Thương đi cấp cứu
+[2026-03-24T03:39:00.258+0000] {subprocess.py:106} INFO - Sent: Hà Nội: Xử phạt tài xế sử dụng điện thoại khi đang lái xe
+[2026-03-24T03:39:00.258+0000] {subprocess.py:106} INFO - Sent: Cháy quán cơm chay ở TP Hồ Chí Minh, 2 mẹ con tử vong
+[2026-03-24T03:39:00.259+0000] {subprocess.py:106} INFO - Sent: CSGT Hà Nội mở đường đưa cháu bé đi cấp cứu trong giờ cao điểm
+[2026-03-24T03:39:00.259+0000] {subprocess.py:106} INFO - Sent: Israel và Mỹ tấn công quy mô lớn trên khắp Iran
+[2026-03-24T03:39:00.259+0000] {subprocess.py:106} INFO - Sent: Sân bay ở Saint Petersburg (Nga) bị tấn công UAV
+[2026-03-24T03:39:00.260+0000] {subprocess.py:106} INFO - Sent: Chìm tàu hút cát trên sông Hồng đoạn qua Phú Thọ, 1 người tử vong, 1 người mất tích
+[2026-03-24T03:39:00.260+0000] {subprocess.py:106} INFO - Sent: 22 quốc gia phối hợp đảm bảo an ninh tại eo biển Hormuz
+[2026-03-24T03:39:00.260+0000] {subprocess.py:106} INFO - Sent: Thị trường chứng khoán tái định giá, dòng tiền có dấu hiệu dịch chuyển
+[2026-03-24T03:39:00.261+0000] {subprocess.py:106} INFO - Sent: Hàng loạt hãng bay quốc tế áp dụng phụ thu
+[2026-03-24T03:39:00.261+0000] {subprocess.py:106} INFO - Sent: Sửa Luật Nhà ở và Luật Kinh doanh bất động sản để tháo gỡ điểm nghẽn thị trường
+[2026-03-24T03:39:00.261+0000] {subprocess.py:106} INFO - Sent: Giá dầu thế giới giảm mạnh
+[2026-03-24T03:39:00.262+0000] {subprocess.py:106} INFO - Sent: Doanh nghiệp xuất khẩu thực phẩm cần lưu ý quy định đăng ký mới của Trung Quốc
+[2026-03-24T03:39:00.262+0000] {subprocess.py:106} INFO - Sent: 3 bước để hộ kinh doanh kê khai thuế
+[2026-03-24T03:39:00.263+0000] {subprocess.py:106} INFO - Sent: Doanh nghiệp Nhật Bản tăng lương cho người lao động
+[2026-03-24T03:39:00.263+0000] {subprocess.py:106} INFO - Sent: Quản lý thị trường kiểm tra hơn 10.000 vụ việc trong quý I
+[2026-03-24T03:39:00.263+0000] {subprocess.py:106} INFO - Sent: Hoàn thiện cơ chế cho Trung tâm Tài chính quốc tế
+[2026-03-24T03:39:00.264+0000] {subprocess.py:106} INFO - Sent: Việt Nam - Liên bang Nga tiếp tục thúc đẩy hợp tác nghị viện
+[2026-03-24T03:39:00.264+0000] {subprocess.py:106} INFO - Sent: Thủ tướng Phạm Minh Chính tiếp Chủ tịch Đảng Cộng sản Liên bang Nga
+[2026-03-24T03:39:00.265+0000] {subprocess.py:106} INFO - Sent: Trung Quốc dự báo AI có thể thay thế diễn viên quần chúng
+[2026-03-24T03:39:00.265+0000] {subprocess.py:106} INFO - Sent: Bắc Bộ sáng sớm có sương mù, mưa phùn, trưa chiều trời nắng
+[2026-03-24T03:39:00.265+0000] {subprocess.py:106} INFO - Sent: Phim tài liệu 'Tôi là Nguyễn Xuân Son': Tình yêu lớn với Việt Nam
+[2026-03-24T03:39:00.266+0000] {subprocess.py:106} INFO - Sent: Những điều đáng suy ngẫm từ bộ phim tài liệu sắp ra mắt của BTS
+[2026-03-24T03:39:00.266+0000] {subprocess.py:106} INFO - Sent: Mark Zuckerberg giảm tham vọng metaverse, chuyển hướng sang AI
+[2026-03-24T03:39:00.267+0000] {subprocess.py:106} INFO - Sent: Chuẩn bị kỹ lưỡng, đề xuất các phương án cụ thể thực hiện cải cách chính sách tiền lương theo lộ trình
+[2026-03-24T03:39:00.267+0000] {subprocess.py:106} INFO - Sent: Triển khai thi hành 2 Luật liên quan đến khiếu nại, tố cáo và phòng, chống tham nhũng
+[2026-03-24T03:39:00.267+0000] {subprocess.py:106} INFO - Sent: Sửa quy định về xử phạt vi phạm hành chính lĩnh vực kinh doanh bảo hiểm
+[2026-03-24T03:39:00.268+0000] {subprocess.py:106} INFO - Sent: Mở rộng cửa đón luật sư, doanh nhân giỏi vào làm công chức
+[2026-03-24T03:39:00.268+0000] {subprocess.py:106} INFO - Sent: Dương Tử kiện đoàn phim cực ngắn dùng AI "mượn mặt" trái phép
+[2026-03-24T03:39:00.269+0000] {subprocess.py:106} INFO - Sent: Cảnh báo tình trạng thiếu nước cục bộ và xâm nhập mặn sâu tại Thành phố Hồ Chí Minh
+[2026-03-24T03:39:00.269+0000] {subprocess.py:106} INFO - Sent: Nữ đại biểu Quốc hội người Ơ Đu đầu tiên và hành trình từ bản nhỏ đến nghị trường
+[2026-03-24T03:39:00.270+0000] {subprocess.py:106} INFO - Sent: Thiết lập thói quen then chốt để cải thiện sức khỏe
+[2026-03-24T03:39:00.270+0000] {subprocess.py:106} INFO - Sent: 6 thức uống quen thuộc giúp giảm huyết áp tự nhiên
+[2026-03-24T03:39:00.270+0000] {subprocess.py:106} INFO - All articles sent to Kafka topic 'news_raw'
+[2026-03-24T03:39:00.330+0000] {subprocess.py:110} INFO - Command exited with return code 0
+[2026-03-24T03:39:00.361+0000] {taskinstance.py:349} INFO - ::group::Post task execution logs
+[2026-03-24T03:39:00.362+0000] {taskinstance.py:361} INFO - Marking task as SUCCESS. dag_id=news_pipeline, task_id=publish_to_kafka, run_id=scheduled__2026-03-16T07:30:00+00:00, execution_date=20260316T073000, start_date=20260324T033857, end_date=20260324T033900
+[2026-03-24T03:39:00.433+0000] {local_task_job_runner.py:266} INFO - Task exited with return code 0
+[2026-03-24T03:39:00.447+0000] {local_task_job_runner.py:245} INFO - ::endgroup::

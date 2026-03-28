@@ -1,22 +1,21 @@
-from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import feedparser
+from common.article_schema import build_article_record, is_valid_article_record
 
 
 def normalize_entry(entry: Any, source_label: str) -> Dict[str, Any]:
-    return {
-        "title": entry.get("title", "").strip(),
-        "link": entry.get("link", "").strip(),
-        "summary": entry.get("summary", "").strip(),
-        "published_at": entry.get("published", "").strip(),
-        "source": source_label,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-    }
+    return build_article_record(
+        title=entry.get("title", ""),
+        link=entry.get("link", ""),
+        summary=entry.get("summary", ""),
+        published_at=entry.get("published", ""),
+        source=source_label,
+    )
 
 
 def is_valid_article(article: Dict[str, Any]) -> bool:
-    return bool(article["title"] and article["link"])
+    return is_valid_article_record(article)
 
 
 def fetch_articles_from_rss(feed_url: str, source_label: str) -> List[Dict[str, Any]]:
