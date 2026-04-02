@@ -20,6 +20,7 @@ class ConsumerUtilsTests(unittest.TestCase):
                     "published_at": "2026-03-28T08:00:00+00:00",
                     "source": "VNExpress",
                     "fetched_at": "2026-03-28T08:05:00+00:00",
+                    "ingestion_id": "ing-001",
                 },
                 {
                     "title": "",
@@ -28,6 +29,7 @@ class ConsumerUtilsTests(unittest.TestCase):
                     "published_at": "invalid-date",
                     "source": "VTV",
                     "fetched_at": "2026-03-28T08:05:00+00:00",
+                    "ingestion_id": "ing-002",
                 },
             ]
         )

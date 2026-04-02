@@ -9,43 +9,37 @@ PROJECT_ROOT = os.getenv("PROJECT_ROOT", "/opt/airflow/project")
 default_args = {
     "owner": "codex",
     "depends_on_past": False,
-    "retries": 1,
-    "retry_delay": timedelta(minutes=5),
+    "retries": 2,
+    "retry_delay": timedelta(minutes=3),
+    "retry_exponential_backoff": True,
+    "max_retry_delay": timedelta(minutes=15),
 }
 
 
 with DAG(
     dag_id="news_pipeline",
     default_args=default_args,
-    description="Fetch news from RSS, publish to Kafka, and store batches in HDFS.",
+    description="Fetch news from RSS and promote it across raw, processed, and curated HDFS zones.",
     start_date=datetime(2026, 3, 14),
     schedule="*/30 * * * *",
     catchup=False,
     tags=["big-data", "kafka", "hdfs", "news"],
 ) as dag:
-    publish_to_kafka = BashOperator(
-        task_id="publish_to_kafka",
+    fetch_and_publish_articles = BashOperator(
+        task_id="fetch_and_publish_articles",
         bash_command=f"cd {PROJECT_ROOT} && python -m producer.run_producer",
     )
 
-    consume_and_store_hdfs = BashOperator(
-        task_id="consume_and_store_hdfs",
+    consume_kafka_to_raw_zone = BashOperator(
+        task_id="consume_kafka_to_raw_zone",
         bash_command=(
             f"cd {PROJECT_ROOT} && "
             "python -m consumer.kafka_consumer_to_hdfs --max-messages 100"
         ),
     )
 
-    validate_hdfs_output = BashOperator(
-        task_id="validate_hdfs_output",
-        bash_command=(
-            f"cd {PROJECT_ROOT} && "
-            "python -m scripts.validate_hdfs_output --path /news/raw"
-        ),
-    )
-
-    transform_raw_to_processed = BashOperator(
-        task_id="transform_raw_to_processed",
+    transform_raw_to_processed_zone = BashOperator(
+        task_id="transform_raw_to_processed_zone",
         bash_command=(
             f"cd {PROJECT_ROOT} && "
             "python -m Spark_jobs.transform_news_raw_to_processed "
@@ -53,13 +47,31 @@ with DAG(
         ),
     )
 
-    validate_processed_output = BashOperator(
-        task_id="validate_processed_output",
+    validate_processed_zone = BashOperator(
+        task_id="validate_processed_zone",
         bash_command=(
             f"cd {PROJECT_ROOT} && "
             "python -m scripts.validate_processed_output --path /news/processed"
         ),
     )
 
-    publish_to_kafka >> consume_and_store_hdfs >> validate_hdfs_output
-    validate_hdfs_output >> transform_raw_to_processed >> validate_processed_output
+    curate_processed_to_curated_zone = BashOperator(
+        task_id="curate_processed_to_curated_zone",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            "python -m Spark_jobs.curate_news_processed_to_curated "
+            "--input-path /news/processed --output-path /news/curated"
+        ),
+    )
+
+    validate_curated_zone = BashOperator(
+        task_id="validate_curated_zone",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            "python -m scripts.validate_curated_output --path /news/curated"
+        ),
+    )
+
+    fetch_and_publish_articles >> consume_kafka_to_raw_zone >> transform_raw_to_processed_zone
+    transform_raw_to_processed_zone >> validate_processed_zone
+    validate_processed_zone >> curate_processed_to_curated_zone >> validate_curated_zone

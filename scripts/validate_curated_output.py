@@ -9,9 +9,9 @@ from common.logging_utils import configure_logging, log_event
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate that processed Parquet output exists for the news pipeline."
+        description="Validate that curated Parquet output exists for the news pipeline."
     )
-    parser.add_argument("--path", default="/news/processed")
+    parser.add_argument("--path", default="/news/curated")
     parser.add_argument("--hdfs-url", default=os.getenv("HDFS_URL", "http://localhost:9870"))
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
     parser.add_argument(
@@ -22,8 +22,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_batch_path(latest_parquet: str) -> str:
+    path = PurePosixPath(latest_parquet)
+    if len(path.parents) < 3:
+        raise SystemExit(f"Unexpected curated file layout: {latest_parquet}")
+    return str(path.parents[2])
+
+
 def main() -> None:
-    logger = configure_logging("validate_processed")
+    logger = configure_logging("validate_curated")
     args = parse_args()
     from hdfs import InsecureClient
 
@@ -37,14 +44,20 @@ def main() -> None:
     success_markers = [item for item in files if PurePosixPath(item[0]).name == "_SUCCESS"]
 
     if not parquet_files:
-        raise SystemExit(f"No Parquet files found under {args.path}")
+        raise SystemExit(f"No curated Parquet files found under {args.path}")
 
     latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
-    latest_batch = str(PurePosixPath(latest_parquet).parent)
+    latest_batch = resolve_batch_path(latest_parquet)
+    partitions = {
+        str(PurePosixPath(item[0]).parent)
+        for item in parquet_files
+        if "event_date=" in item[0] and "source=" in item[0]
+    }
     payload = {
         "path": args.path,
         "parquet_file_count": len(parquet_files),
         "success_marker_count": len(success_markers),
+        "partition_count": len(partitions),
         "latest_batch": latest_batch,
         "latest_parquet_file": latest_parquet,
     }
@@ -56,9 +69,10 @@ def main() -> None:
     log_event(
         logger,
         20,
-        "processed_zone_validation_completed",
+        "curated_zone_validation_completed",
         output_path=args.path,
         row_count=len(parquet_files),
+        partition_count=len(partitions),
         success_marker_count=len(success_markers),
         latest_batch=latest_batch,
         latest_parquet_file=latest_parquet,

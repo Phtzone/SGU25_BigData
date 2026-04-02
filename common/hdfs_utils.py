@@ -185,3 +185,33 @@ def upload_directory_to_hdfs(
         uploaded_paths.append(target_path)
 
     return uploaded_paths
+
+
+def download_hdfs_directory(
+    *,
+    client: InsecureClient,
+    hdfs_dir: str,
+    local_dir: str,
+    hdfs_url: str,
+    hdfs_user: str,
+    redirect_host: str = "",
+) -> list[str]:
+    downloaded_paths: list[str] = []
+    target_dir = Path(local_dir)
+    hdfs_root = PurePosixPath(hdfs_dir)
+
+    for entry_path, _ in list_hdfs_files(client, hdfs_dir):
+        relative_path = PurePosixPath(entry_path).relative_to(hdfs_root).as_posix()
+        local_path = target_dir / Path(relative_path)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_bytes(
+            read_hdfs_bytes(
+                hdfs_url=hdfs_url,
+                hdfs_user=hdfs_user,
+                path=entry_path,
+                redirect_host=redirect_host,
+            )
+        )
+        downloaded_paths.append(str(local_path))
+
+    return downloaded_paths

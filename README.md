@@ -2,7 +2,7 @@
 
 This repository is organized around the Big Data MVP:
 
-`RSS -> Kafka -> HDFS raw -> Spark processed`
+`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated`
 
 Airflow orchestration is implemented as an optional Docker Compose profile on top of the working MVP stack.
 
@@ -89,6 +89,11 @@ Create the Kafka topic:
 bash scripts/init_kafka_topics.sh
 ```
 
+This creates:
+
+- `news_raw`
+- `news_dead_letter`
+
 ## Run the Core Pipeline
 
 Publish RSS items into Kafka:
@@ -102,6 +107,8 @@ Consume Kafka messages and write them to HDFS raw storage:
 ```bash
 python -m consumer.kafka_consumer_to_hdfs --max-messages 50
 ```
+
+The default consumer group is `news-raw-to-hdfs-v1` locally and `news-raw-to-hdfs-airflow` in Docker Airflow.
 
 When the consumer runs from WSL/local and `HDFS_URL` points to `localhost`, it automatically rewrites WebHDFS redirects back to `localhost` so it can upload to the exposed DataNode port.
 
@@ -121,6 +128,18 @@ Validate processed output:
 
 ```bash
 python -m scripts.validate_processed_output --path /news/processed
+```
+
+Curate the latest processed batch into the curated zone:
+
+```bash
+python -m Spark_jobs.curate_news_processed_to_curated --input-path /news/processed --output-path /news/curated
+```
+
+Validate curated output:
+
+```bash
+python -m scripts.validate_curated_output --path /news/curated
 ```
 
 Run the full MVP smoke test:
@@ -155,7 +174,37 @@ The Spark transform writes processed Parquet batches under:
 /news/processed/YYYY/MM/DD/news_HHMMSS/
 ```
 
+The curated job writes analytics-ready Parquet batches under:
+
+```text
+/news/curated/YYYY/MM/DD/news_HHMMSS/
+```
+
 See `docs/data_contract.md` for the shared article schema and validation rules.
+
+## Observability And Quality
+
+Core pipeline services now use structured logging via Python `logging` instead of ad-hoc `print`.
+
+Each major step logs stable fields such as:
+
+- `source`
+- `topic`
+- `row_count`
+- `invalid_count`
+- `duplicate_count`
+- `output_path`
+- `duration_ms`
+
+Data quality metrics are logged during producer fetch, Kafka consumption, and Spark transforms:
+
+- missing `title` count and rate
+- missing `link` count and rate
+- duplicate record count
+- articles by `source`
+- warning alert when a configured source returns `0` articles
+
+Kafka messages are now published with the normalized article link as the message key. Invalid consumed messages are routed to the `news_dead_letter` topic with validation errors and payload context.
 
 ## Airflow Phase
 
@@ -168,7 +217,9 @@ Files involved:
 - `requirements-airflow.txt`
 - `scripts/start_airflow.sh`
 - `Spark_jobs/transform_news_raw_to_processed.py`
+- `Spark_jobs/curate_news_processed_to_curated.py`
 - `scripts/validate_processed_output.py`
+- `scripts/validate_curated_output.py`
 
 Start Airflow:
 
@@ -200,9 +251,10 @@ The DAG runs the same commands you already verified manually, but inside Docker 
 The phase-1 DAG order is now:
 
 ```text
-publish_to_kafka
-  -> consume_and_store_hdfs
-  -> validate_hdfs_output
-  -> transform_raw_to_processed
-  -> validate_processed_output
+fetch_and_publish_articles
+  -> consume_kafka_to_raw_zone
+  -> transform_raw_to_processed_zone
+  -> validate_processed_zone
+  -> curate_processed_to_curated_zone
+  -> validate_curated_zone
 ```

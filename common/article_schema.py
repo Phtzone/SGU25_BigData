@@ -10,13 +10,13 @@ ARTICLE_FIELDS = (
     "link",
     "summary",
     "published_at",
-    "published_at_raw",
     "source",
     "fetched_at",
     "ingestion_id",
 )
 
-REQUIRED_ARTICLE_FIELDS = ("title", "link", "source")
+REQUIRED_TEXT_FIELDS = ("title", "link", "source", "ingestion_id")
+REQUIRED_DATETIME_FIELDS = ("published_at", "fetched_at")
 
 
 def utc_now_iso() -> str:
@@ -65,50 +65,56 @@ def build_article_record(
     ingestion_id: str | None = None,
 ) -> dict[str, str]:
     normalized_published = normalize_datetime_string(published_at)
+    normalized_fetched_at = (
+        utc_now_iso() if fetched_at is None else normalize_datetime_string(fetched_at)
+    )
+    normalized_ingestion_id = normalize_text(ingestion_id) or uuid4().hex
 
     return {
         "title": normalize_text(title),
         "link": normalize_text(link),
         "summary": normalize_text(summary),
         "published_at": normalized_published,
-        "published_at_raw": normalize_text(published_at),
         "source": normalize_text(source),
-        "fetched_at": fetched_at or utc_now_iso(),
-        "ingestion_id": ingestion_id or uuid4().hex,
+        "fetched_at": normalized_fetched_at,
+        "ingestion_id": normalized_ingestion_id,
     }
 
 
 def normalize_article_record(article: dict[str, Any]) -> dict[str, str]:
-    fetched_at = normalize_datetime_string(article.get("fetched_at")) or utc_now_iso()
-    published_source = article.get("published_at") or article.get("published_at_raw")
-
-    normalized = build_article_record(
-        title=article.get("title"),
-        link=article.get("link"),
-        summary=article.get("summary"),
-        published_at=published_source,
-        source=article.get("source"),
-        fetched_at=fetched_at,
-        ingestion_id=normalize_text(article.get("ingestion_id")) or None,
-    )
-
-    published_at_raw = normalize_text(article.get("published_at_raw"))
-    if published_at_raw:
-        normalized["published_at_raw"] = published_at_raw
-
-    return normalized
+    return {
+        "title": normalize_text(article.get("title")),
+        "link": normalize_text(article.get("link")),
+        "summary": normalize_text(article.get("summary")),
+        "published_at": normalize_datetime_string(article.get("published_at")),
+        "source": normalize_text(article.get("source")),
+        "fetched_at": normalize_datetime_string(article.get("fetched_at")),
+        "ingestion_id": normalize_text(article.get("ingestion_id")),
+    }
 
 
 def validate_article_record(article: dict[str, Any]) -> list[str]:
     errors: list[str] = []
 
-    for field in REQUIRED_ARTICLE_FIELDS:
+    missing_fields = [field for field in ARTICLE_FIELDS if field not in article]
+    if missing_fields:
+        errors.append(f"missing fields: {', '.join(missing_fields)}")
+
+    unexpected_fields = [field for field in article if field not in ARTICLE_FIELDS]
+    if unexpected_fields:
+        errors.append(f"unexpected fields: {', '.join(sorted(unexpected_fields))}")
+
+    for field in REQUIRED_TEXT_FIELDS:
         if not normalize_text(article.get(field)):
             errors.append(f"{field} is required")
 
-    fetched_at = normalize_text(article.get("fetched_at"))
-    if fetched_at and not normalize_datetime_string(fetched_at):
-        errors.append("fetched_at must be a valid datetime")
+    for field in REQUIRED_DATETIME_FIELDS:
+        value = normalize_text(article.get(field))
+        if not value:
+            errors.append(f"{field} is required")
+            continue
+        if not normalize_datetime_string(value):
+            errors.append(f"{field} must be a valid datetime")
 
     return errors
 

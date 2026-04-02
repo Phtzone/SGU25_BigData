@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 from common.hdfs_utils import (
@@ -10,6 +11,7 @@ from common.hdfs_utils import (
     resolve_latest_hdfs_file,
     upload_directory_to_hdfs,
 )
+from common.logging_utils import configure_logging, log_event
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,7 +63,7 @@ def transform_local_json_to_parquet(
     local_input_path: str,
     local_output_dir: str,
     app_name: str,
-) -> int:
+) -> tuple[int, dict[str, object]]:
     from pyspark.sql import functions as F
     from pyspark.sql import types as T
 
@@ -73,7 +75,6 @@ def transform_local_json_to_parquet(
             T.StructField("link", T.StringType(), True),
             T.StructField("summary", T.StringType(), True),
             T.StructField("published_at", T.StringType(), True),
-            T.StructField("published_at_raw", T.StringType(), True),
             T.StructField("source", T.StringType(), True),
             T.StructField("fetched_at", T.StringType(), True),
             T.StructField("ingestion_id", T.StringType(), True),
@@ -83,12 +84,10 @@ def transform_local_json_to_parquet(
     try:
         raw_df = spark.read.schema(schema).json(local_input_path)
 
-        published_raw = F.trim(F.coalesce(F.col("published_at_raw"), F.col("published_at"), F.lit("")))
         published_ts = F.coalesce(
             F.to_timestamp(F.col("published_at")),
-            F.to_timestamp(published_raw),
-            F.to_timestamp(published_raw, "EEE, dd MMM yyyy HH:mm:ss z"),
-            F.to_timestamp(published_raw, "EEE, dd MMM yyyy HH:mm:ss Z"),
+            F.to_timestamp(F.col("published_at"), "EEE, dd MMM yyyy HH:mm:ss z"),
+            F.to_timestamp(F.col("published_at"), "EEE, dd MMM yyyy HH:mm:ss Z"),
         )
 
         fetched_ts = F.coalesce(
@@ -96,21 +95,35 @@ def transform_local_json_to_parquet(
             F.to_timestamp(F.col("fetched_at"), "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"),
         )
 
-        processed_df = (
+        raw_count = raw_df.count()
+        missing_title_count = raw_df.where(F.trim(F.coalesce(F.col("title"), F.lit(""))) == "").count()
+        missing_link_count = raw_df.where(F.trim(F.coalesce(F.col("link"), F.lit(""))) == "").count()
+
+        valid_rows_df = (
             raw_df.select(
                 F.trim(F.coalesce(F.col("title"), F.lit(""))).alias("title"),
                 F.trim(F.coalesce(F.col("link"), F.lit(""))).alias("link"),
                 F.trim(F.coalesce(F.col("summary"), F.lit(""))).alias("summary"),
-                F.trim(F.coalesce(F.col("source"), F.lit(""))).alias("source"),
                 F.trim(F.coalesce(F.col("published_at"), F.lit(""))).alias("published_at"),
-                published_raw.alias("published_at_raw"),
+                F.trim(F.coalesce(F.col("source"), F.lit(""))).alias("source"),
                 F.trim(F.coalesce(F.col("fetched_at"), F.lit(""))).alias("fetched_at"),
                 F.trim(F.coalesce(F.col("ingestion_id"), F.lit(""))).alias("ingestion_id"),
             )
-            .where((F.col("title") != "") & (F.col("link") != "") & (F.col("source") != ""))
-            .withColumn("published_at_ts", published_ts)
-            .withColumn("fetched_at_ts", fetched_ts)
-            .withColumn("event_date", F.to_date(F.coalesce(published_ts, fetched_ts)))
+            .withColumn("published_at", published_ts)
+            .withColumn("fetched_at", fetched_ts)
+            .where(
+                (F.col("title") != "")
+                & (F.col("link") != "")
+                & (F.col("source") != "")
+                & (F.col("ingestion_id") != "")
+                & F.col("published_at").isNotNull()
+                & F.col("fetched_at").isNotNull()
+            )
+        )
+        valid_row_count = valid_rows_df.count()
+        processed_df = (
+            valid_rows_df
+            .withColumn("event_date", F.to_date(F.col("published_at")))
             .dropDuplicates(["link"])
         )
 
@@ -119,12 +132,28 @@ def transform_local_json_to_parquet(
             raise SystemExit("No valid rows remained after Spark transformation.")
 
         processed_df.write.mode("overwrite").parquet(local_output_dir)
-        return record_count
+        source_counts = {
+            row["source"]: row["count"]
+            for row in processed_df.groupBy("source").count().collect()
+        }
+        metrics = {
+            "raw_count": raw_count,
+            "valid_row_count": valid_row_count,
+            "missing_title_count": missing_title_count,
+            "missing_title_rate": round((missing_title_count / raw_count), 4) if raw_count else 0.0,
+            "missing_link_count": missing_link_count,
+            "missing_link_rate": round((missing_link_count / raw_count), 4) if raw_count else 0.0,
+            "duplicate_count": valid_row_count - record_count,
+            "articles_by_source": source_counts,
+        }
+        return record_count, metrics
     finally:
         spark.stop()
 
 
 def main() -> None:
+    logger = configure_logging("spark_transform")
+    started_at = time.perf_counter()
     args = parse_args()
     from hdfs import InsecureClient
 
@@ -144,7 +173,7 @@ def main() -> None:
         )
         Path(local_input_path).write_bytes(input_bytes)
 
-        record_count = transform_local_json_to_parquet(
+        record_count, metrics = transform_local_json_to_parquet(
             local_input_path=local_input_path,
             local_output_dir=local_output_dir,
             app_name=args.app_name,
@@ -161,9 +190,24 @@ def main() -> None:
             redirect_host=args.webhdfs_redirect_host,
         )
 
-    print(f"Source raw file: {source_path}")
-    print(f"Processed output path: {target_path}")
-    print(f"Processed row count: {record_count}")
+    log_event(
+        logger,
+        20,
+        "spark_processed_write_completed",
+        input_path=source_path,
+        output_path=target_path,
+        row_count=record_count,
+        raw_count=metrics["raw_count"],
+        valid_row_count=metrics["valid_row_count"],
+        missing_title_count=metrics["missing_title_count"],
+        missing_title_rate=metrics["missing_title_rate"],
+        missing_link_count=metrics["missing_link_count"],
+        missing_link_rate=metrics["missing_link_rate"],
+        duplicate_count=metrics["duplicate_count"],
+        articles_by_source=metrics["articles_by_source"],
+        duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+        status="success",
+    )
 
 
 if __name__ == "__main__":

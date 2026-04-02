@@ -20,11 +20,16 @@ x-airflow-common: &airflow-common
     PYTHONPATH: /opt/airflow/project
     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     KAFKA_TOPIC: news_raw
+    KAFKA_DEAD_LETTER_TOPIC: news_dead_letter
+    KAFKA_CONSUMER_GROUP: news-raw-to-hdfs-airflow
     HDFS_URL: http://namenode:9870
     HDFS_USER: root
+    HDFS_RAW_PATH: /news/raw
     HDFS_PROCESSED_PATH: /news/processed
+    HDFS_CURATED_PATH: /news/curated
     WEBHDFS_REDIRECT_HOST: datanode
     SPARK_MASTER: local[*]
+    LOG_JSON: "1"
   volumes:
     - ./dags:/opt/airflow/dags:ro
     - ./airflow/logs:/opt/airflow/logs

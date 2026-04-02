@@ -20,31 +20,58 @@ class ArticleSchemaTests(unittest.TestCase):
         self.assertEqual(article["summary"], "Summary with spaces")
         self.assertEqual(article["source"], "Example Source")
         self.assertEqual(article["published_at"], "2026-03-28T12:34:56+00:00")
-        self.assertEqual(article["published_at_raw"], "Sat, 28 Mar 2026 12:34:56 GMT")
         self.assertEqual(article["fetched_at"], "2026-03-28T12:35:00+00:00")
         self.assertEqual(article["ingestion_id"], "abc123")
+        self.assertEqual(
+            tuple(article.keys()),
+            (
+                "title",
+                "link",
+                "summary",
+                "published_at",
+                "source",
+                "fetched_at",
+                "ingestion_id",
+            ),
+        )
 
-    def test_normalize_article_record_preserves_raw_published_value(self) -> None:
+    def test_normalize_article_record_normalizes_to_unified_contract(self) -> None:
         normalized = normalize_article_record(
             {
                 "title": "Hello",
                 "link": "https://example.com",
                 "summary": "World",
-                "published_at_raw": "Sat, 28 Mar 2026 12:34:56 GMT",
+                "published_at": "Sat, 28 Mar 2026 12:34:56 GMT",
                 "source": "VNExpress",
                 "fetched_at": "2026-03-28T12:35:00+00:00",
+                "ingestion_id": "ing-001",
+                "ignored_field": "should-not-survive",
             }
         )
 
-        self.assertEqual(normalized["published_at_raw"], "Sat, 28 Mar 2026 12:34:56 GMT")
         self.assertEqual(normalized["published_at"], "2026-03-28T12:34:56+00:00")
+        self.assertEqual(normalized["ingestion_id"], "ing-001")
+        self.assertNotIn("ignored_field", normalized)
 
-    def test_validate_article_record_requires_core_fields(self) -> None:
-        errors = validate_article_record({"title": "", "link": "", "source": ""})
+    def test_validate_article_record_requires_unified_contract_fields(self) -> None:
+        errors = validate_article_record(
+            {
+                "title": "",
+                "link": "",
+                "summary": "",
+                "published_at": "",
+                "source": "",
+                "fetched_at": "",
+                "ingestion_id": "",
+            }
+        )
 
         self.assertIn("title is required", errors)
         self.assertIn("link is required", errors)
+        self.assertIn("published_at is required", errors)
         self.assertIn("source is required", errors)
+        self.assertIn("fetched_at is required", errors)
+        self.assertIn("ingestion_id is required", errors)
 
 
 if __name__ == "__main__":
