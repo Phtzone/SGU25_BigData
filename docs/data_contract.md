@@ -27,9 +27,9 @@ Each article published to Kafka and stored in HDFS raw files uses the following 
 
 ## Storage zones
 
-- Raw zone: `/news/raw/YYYY/MM/DD/news_HHMMSS.jsonl`
-- Processed zone: `/news/processed/YYYY/MM/DD/news_HHMMSS/`
-- Curated zone: `/news/curated/YYYY/MM/DD/news_HHMMSS/`
+- Raw zone: `/news/raw/YYYY/MM/DD/news_HHMMSSffffff.jsonl`
+- Processed zone: `/news/processed/YYYY/MM/DD/news_HHMMSSffffff/`
+- Curated zone: `/news/curated/YYYY/MM/DD/news_HHMMSSffffff/`
 
 ## Processed schema
 

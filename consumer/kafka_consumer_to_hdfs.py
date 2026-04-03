@@ -56,7 +56,7 @@ def create_consumer(args: argparse.Namespace):
         args.topic,
         bootstrap_servers=args.bootstrap_servers,
         auto_offset_reset="earliest",
-        enable_auto_commit=True,
+        enable_auto_commit=False,
         group_id=args.group_id,
         value_deserializer=lambda value: json.loads(value.decode("utf-8")),
     )
@@ -117,7 +117,11 @@ def build_output_path(base_path: str, collected_at: datetime) -> str:
         collected_at.strftime("%m"),
         collected_at.strftime("%d"),
     )
-    return str(output_dir / f"news_{collected_at.strftime('%H%M%S')}.jsonl")
+    return str(output_dir / f"news_{collected_at.strftime('%H%M%S%f')}.jsonl")
+
+
+def commit_processed_offsets(consumer: Any) -> None:
+    consumer.commit()
 
 
 def write_jsonl_to_hdfs(
@@ -252,6 +256,7 @@ def main() -> None:
                 status="warning",
             )
         if not rows:
+            commit_processed_offsets(consumer)
             log_event(
                 logger,
                 30,
@@ -260,6 +265,7 @@ def main() -> None:
                 group_id=args.group_id,
                 invalid_count=invalid_count,
                 status="warning",
+                offset_commit="success",
                 duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
             )
             return
@@ -268,6 +274,7 @@ def main() -> None:
         output_path = build_output_path(args.base_path, collected_at)
         write_jsonl_to_hdfs(args=args, client=client, output_path=output_path, rows=rows)
         valid_quality = summarize_article_quality(rows)
+        commit_processed_offsets(consumer)
         log_event(
             logger,
             20,
@@ -283,6 +290,7 @@ def main() -> None:
             missing_link_rate=consumed_quality["missing_link_rate"],
             articles_by_source=valid_quality["articles_by_source"],
             output_path=output_path,
+            offset_commit="success",
             duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
             status="success",
         )

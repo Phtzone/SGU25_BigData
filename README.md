@@ -33,6 +33,10 @@ Use `WSL/Linux + Docker Desktop`.
 `- docs/
 ```
 
+## Architecture Diagram
+
+![Project architecture](docs/project_architecture.svg)
+
 ## Services in Docker Compose
 
 The core stack includes:
@@ -157,7 +161,7 @@ python -m scripts.preview_hdfs_data --path /news/raw --limit 5
 You can also preview a specific file:
 
 ```bash
-python -m scripts.preview_hdfs_data --path /news/raw/2026/03/14/news_145545.jsonl --limit 3
+python -m scripts.preview_hdfs_data --path /news/raw/2026/03/14/news_145545123456.jsonl --limit 3
 ```
 
 ## HDFS Output Layout
@@ -165,19 +169,19 @@ python -m scripts.preview_hdfs_data --path /news/raw/2026/03/14/news_145545.json
 The consumer writes raw files under:
 
 ```text
-/news/raw/YYYY/MM/DD/news_HHMMSS.jsonl
+/news/raw/YYYY/MM/DD/news_HHMMSSffffff.jsonl
 ```
 
 The Spark transform writes processed Parquet batches under:
 
 ```text
-/news/processed/YYYY/MM/DD/news_HHMMSS/
+/news/processed/YYYY/MM/DD/news_HHMMSSffffff/
 ```
 
 The curated job writes analytics-ready Parquet batches under:
 
 ```text
-/news/curated/YYYY/MM/DD/news_HHMMSS/
+/news/curated/YYYY/MM/DD/news_HHMMSSffffff/
 ```
 
 See `docs/data_contract.md` for the shared article schema and validation rules.
