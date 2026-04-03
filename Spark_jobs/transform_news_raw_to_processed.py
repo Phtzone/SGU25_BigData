@@ -68,6 +68,9 @@ def transform_local_json_to_parquet(
     from pyspark.sql import types as T
 
     spark = create_spark_session(app_name)
+    raw_df = None
+    valid_rows_df = None
+    processed_df = None
 
     schema = T.StructType(
         [
@@ -82,7 +85,7 @@ def transform_local_json_to_parquet(
     )
 
     try:
-        raw_df = spark.read.schema(schema).json(local_input_path)
+        raw_df = spark.read.schema(schema).json(local_input_path).persist()
 
         published_ts = F.coalesce(
             F.to_timestamp(F.col("published_at")),
@@ -95,9 +98,18 @@ def transform_local_json_to_parquet(
             F.to_timestamp(F.col("fetched_at"), "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"),
         )
 
-        raw_count = raw_df.count()
-        missing_title_count = raw_df.where(F.trim(F.coalesce(F.col("title"), F.lit(""))) == "").count()
-        missing_link_count = raw_df.where(F.trim(F.coalesce(F.col("link"), F.lit(""))) == "").count()
+        raw_metrics = raw_df.agg(
+            F.count(F.lit(1)).alias("raw_count"),
+            F.sum(
+                F.when(F.trim(F.coalesce(F.col("title"), F.lit(""))) == "", F.lit(1)).otherwise(F.lit(0))
+            ).alias("missing_title_count"),
+            F.sum(
+                F.when(F.trim(F.coalesce(F.col("link"), F.lit(""))) == "", F.lit(1)).otherwise(F.lit(0))
+            ).alias("missing_link_count"),
+        ).collect()[0]
+        raw_count = int(raw_metrics["raw_count"])
+        missing_title_count = int(raw_metrics["missing_title_count"])
+        missing_link_count = int(raw_metrics["missing_link_count"])
 
         valid_rows_df = (
             raw_df.select(
@@ -119,23 +131,23 @@ def transform_local_json_to_parquet(
                 & F.col("published_at").isNotNull()
                 & F.col("fetched_at").isNotNull()
             )
-        )
-        valid_row_count = valid_rows_df.count()
+        ).persist()
+        valid_row_count = int(valid_rows_df.agg(F.count(F.lit(1)).alias("valid_row_count")).collect()[0]["valid_row_count"])
         processed_df = (
             valid_rows_df
             .withColumn("event_date", F.to_date(F.col("published_at")))
             .dropDuplicates(["link"])
-        )
+        ).persist()
 
-        record_count = processed_df.count()
-        if record_count == 0:
-            raise SystemExit("No valid rows remained after Spark transformation.")
-
-        processed_df.write.mode("overwrite").parquet(local_output_dir)
         source_counts = {
             row["source"]: row["count"]
             for row in processed_df.groupBy("source").count().collect()
         }
+        record_count = int(sum(source_counts.values()))
+        if record_count == 0:
+            raise SystemExit("No valid rows remained after Spark transformation.")
+
+        processed_df.write.mode("overwrite").parquet(local_output_dir)
         metrics = {
             "raw_count": raw_count,
             "valid_row_count": valid_row_count,
@@ -148,6 +160,12 @@ def transform_local_json_to_parquet(
         }
         return record_count, metrics
     finally:
+        if processed_df is not None:
+            processed_df.unpersist()
+        if valid_rows_df is not None:
+            valid_rows_df.unpersist()
+        if raw_df is not None:
+            raw_df.unpersist()
         spark.stop()
 
 

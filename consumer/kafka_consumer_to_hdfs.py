@@ -1,4 +1,5 @@
 import argparse
+import base64
 import json
 import os
 import time
@@ -7,7 +8,7 @@ from pathlib import PurePosixPath
 from typing import Any, TYPE_CHECKING
 
 from common.data_quality import summarize_article_quality
-from common.article_schema import normalize_article_record, validate_article_record
+from common.article_schema import normalize_article_record, normalize_text, validate_article_record
 from common.hdfs_utils import upload_hdfs_bytes
 from common.logging_utils import configure_logging, log_event
 
@@ -58,7 +59,6 @@ def create_consumer(args: argparse.Namespace):
         auto_offset_reset="earliest",
         enable_auto_commit=False,
         group_id=args.group_id,
-        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
     )
 
 
@@ -66,8 +66,8 @@ def collect_messages(
     consumer: Any,
     max_messages: int,
     poll_timeout_ms: int,
-) -> list[dict[str, Any]]:
-    collected: list[dict[str, Any]] = []
+) -> list[Any]:
+    collected: list[Any] = []
 
     while len(collected) < max_messages:
         remaining = max_messages - len(collected)
@@ -77,9 +77,106 @@ def collect_messages(
 
         for batch in records.values():
             for message in batch:
-                collected.append(message.value)
+                collected.append(message)
 
     return collected
+
+
+def serialize_raw_payload(value: Any, *, max_bytes: int = 4096) -> dict[str, Any]:
+    if isinstance(value, bytes):
+        is_truncated = len(value) > max_bytes
+        raw_slice = value[:max_bytes]
+        return {
+            "encoding": "base64",
+            "is_truncated": is_truncated,
+            "payload": base64.b64encode(raw_slice).decode("ascii"),
+        }
+
+    text_value = str(value)
+    text_slice = text_value[:max_bytes]
+    return {
+        "encoding": "text",
+        "is_truncated": len(text_value) > max_bytes,
+        "payload": text_slice,
+    }
+
+
+def decode_message_value(message_value: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if isinstance(message_value, dict):
+        return message_value, None
+
+    if isinstance(message_value, bytes):
+        try:
+            raw_text = message_value.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            return None, {
+                "error_type": "utf8_decode_error",
+                "error_message": str(exc),
+                "raw_payload": serialize_raw_payload(message_value),
+            }
+    elif isinstance(message_value, str):
+        raw_text = message_value
+    else:
+        return None, {
+            "error_type": "unsupported_message_type",
+            "error_message": f"Unsupported Kafka message value type: {type(message_value).__name__}",
+            "raw_payload": serialize_raw_payload(message_value),
+        }
+
+    try:
+        parsed_value = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        return None, {
+            "error_type": "json_decode_error",
+            "error_message": str(exc),
+            "raw_payload": serialize_raw_payload(message_value),
+        }
+
+    if not isinstance(parsed_value, dict):
+        return None, {
+            "error_type": "json_payload_not_object",
+            "error_message": f"Expected JSON object but got {type(parsed_value).__name__}",
+            "raw_payload": serialize_raw_payload(message_value),
+        }
+
+    return parsed_value, None
+
+
+def normalize_message_key(message_key: Any) -> str:
+    if message_key is None:
+        return ""
+    if isinstance(message_key, bytes):
+        try:
+            return normalize_text(message_key.decode("utf-8"))
+        except UnicodeDecodeError:
+            return base64.b64encode(message_key).decode("ascii")
+    return normalize_text(message_key)
+
+
+def split_rows_by_deserialization(
+    rows: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    parsed_rows: list[dict[str, Any]] = []
+    failed_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        parsed_value, decode_error = decode_message_value(row.value)
+        if decode_error:
+            failed_rows.append(
+                {
+                    "error_type": decode_error["error_type"],
+                    "error_message": decode_error["error_message"],
+                    "raw_payload": decode_error["raw_payload"],
+                    "partition": getattr(row, "partition", None),
+                    "offset": getattr(row, "offset", None),
+                    "timestamp": getattr(row, "timestamp", None),
+                    "message_key": normalize_message_key(getattr(row, "key", None)),
+                }
+            )
+            continue
+        parsed_rows.append(parsed_value)
+
+    return parsed_rows, failed_rows
 
 
 def split_rows_by_validity(
@@ -177,14 +274,36 @@ def build_dead_letter_message(
     }
 
 
+def build_deserialization_dead_letter_message(
+    *,
+    failed_row: dict[str, Any],
+    topic: str,
+    group_id: str,
+) -> dict[str, Any]:
+    return {
+        "reason": "message_deserialization_failed",
+        "source_topic": topic,
+        "consumer_group": group_id,
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "error_type": failed_row["error_type"],
+        "error_message": failed_row["error_message"],
+        "raw_payload": failed_row["raw_payload"],
+        "message_key": failed_row["message_key"],
+        "partition": failed_row["partition"],
+        "offset": failed_row["offset"],
+        "timestamp": failed_row["timestamp"],
+    }
+
+
 def publish_dead_letters(
     *,
     producer: Any,
     topic: str,
     group_id: str,
     invalid_rows: list[dict[str, Any]],
+    deserialization_failures: list[dict[str, Any]] | None = None,
 ) -> int:
-    if producer is None or not topic or not invalid_rows:
+    if producer is None or not topic:
         return 0
 
     published_count = 0
@@ -199,6 +318,16 @@ def publish_dead_letters(
             or invalid_row["normalized_payload"].get("ingestion_id")
             or "news_dead_letter"
         )
+        producer.send(topic, key=key, value=payload)
+        published_count += 1
+
+    for failed_row in deserialization_failures or []:
+        payload = build_deserialization_dead_letter_message(
+            failed_row=failed_row,
+            topic=topic,
+            group_id=group_id,
+        )
+        key = failed_row["message_key"] or f"dead_letter_{failed_row['partition']}_{failed_row['offset']}"
         producer.send(topic, key=key, value=payload)
         published_count += 1
 
@@ -234,15 +363,18 @@ def main() -> None:
             )
             return
 
+        rows, deserialization_failures = split_rows_by_deserialization(rows)
+        deserialization_error_count = len(deserialization_failures)
         consumed_quality = summarize_article_quality(rows)
         rows, invalid_rows = split_rows_by_validity(rows)
         invalid_count = len(invalid_rows)
-        if invalid_count:
+        if invalid_count or deserialization_error_count:
             dead_letter_count = publish_dead_letters(
                 producer=dead_letter_producer,
                 topic=args.dead_letter_topic,
                 group_id=args.group_id,
                 invalid_rows=invalid_rows,
+                deserialization_failures=deserialization_failures,
             )
             log_event(
                 logger,
@@ -251,6 +383,7 @@ def main() -> None:
                 topic=args.topic,
                 group_id=args.group_id,
                 dead_letter_topic=args.dead_letter_topic,
+                deserialization_error_count=deserialization_error_count,
                 invalid_count=invalid_count,
                 dead_letter_count=dead_letter_count,
                 status="warning",
@@ -263,6 +396,7 @@ def main() -> None:
                 "no_valid_messages_after_validation",
                 topic=args.topic,
                 group_id=args.group_id,
+                deserialization_error_count=deserialization_error_count,
                 invalid_count=invalid_count,
                 status="warning",
                 offset_commit="success",
@@ -282,6 +416,7 @@ def main() -> None:
             topic=args.topic,
             group_id=args.group_id,
             row_count=len(rows),
+            deserialization_error_count=deserialization_error_count,
             invalid_count=invalid_count,
             duplicate_count=consumed_quality["duplicate_count"],
             missing_title_count=consumed_quality["missing_title_count"],

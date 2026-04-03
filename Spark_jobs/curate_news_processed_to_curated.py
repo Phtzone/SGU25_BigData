@@ -70,10 +70,12 @@ def transform_local_processed_to_curated(
     from pyspark.sql import functions as F
 
     spark = create_spark_session(app_name)
+    processed_df = None
+    curated_df = None
 
     try:
-        processed_df = spark.read.parquet(local_input_dir)
-        input_row_count = processed_df.count()
+        processed_df = spark.read.parquet(local_input_dir).persist()
+        input_row_count = int(processed_df.agg(F.count(F.lit(1)).alias("input_row_count")).collect()[0]["input_row_count"])
 
         curated_df = (
             processed_df.select(
@@ -95,25 +97,35 @@ def transform_local_processed_to_curated(
             )
             .withColumn("event_date", F.to_date(F.col("published_at")))
             .dropDuplicates(["link"])
-        )
+        ).persist()
 
-        record_count = curated_df.count()
-        if record_count == 0:
-            raise SystemExit("No valid rows remained after curated transformation.")
-
-        curated_df.write.mode("overwrite").partitionBy("event_date", "source").parquet(local_output_dir)
         source_counts = {
             row["source"]: row["count"]
             for row in curated_df.groupBy("source").count().collect()
         }
+        record_count = int(sum(source_counts.values()))
+        if record_count == 0:
+            raise SystemExit("No valid rows remained after curated transformation.")
+
+        partition_count = int(
+            curated_df.select("event_date", "source")
+            .distinct()
+            .agg(F.count(F.lit(1)).alias("partition_count"))
+            .collect()[0]["partition_count"]
+        )
+        curated_df.write.mode("overwrite").partitionBy("event_date", "source").parquet(local_output_dir)
         metrics = {
             "input_row_count": input_row_count,
             "duplicate_count": input_row_count - record_count,
             "articles_by_source": source_counts,
-            "partition_count": curated_df.select("event_date", "source").distinct().count(),
+            "partition_count": partition_count,
         }
         return record_count, metrics
     finally:
+        if curated_df is not None:
+            curated_df.unpersist()
+        if processed_df is not None:
+            processed_df.unpersist()
         spark.stop()
 
 
