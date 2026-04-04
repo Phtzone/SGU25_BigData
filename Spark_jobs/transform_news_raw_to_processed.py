@@ -7,21 +7,27 @@ import time
 from pathlib import Path, PurePosixPath
 
 from common.hdfs_utils import (
-    read_hdfs_bytes,
+    build_hdfs_uri,
+    derive_hdfs_default_fs,
     resolve_latest_hdfs_file,
-    upload_directory_to_hdfs,
 )
 from common.logging_utils import configure_logging, log_event
 
 
 def parse_args() -> argparse.Namespace:
+    default_hdfs_url = os.getenv("HDFS_URL", "http://localhost:9870")
     parser = argparse.ArgumentParser(
         description="Transform raw HDFS news JSONL into processed Parquet using PySpark."
     )
     parser.add_argument("--input-path", default=os.getenv("HDFS_RAW_PATH", "/news/raw"))
     parser.add_argument("--output-path", default=os.getenv("HDFS_PROCESSED_PATH", "/news/processed"))
-    parser.add_argument("--hdfs-url", default=os.getenv("HDFS_URL", "http://localhost:9870"))
+    parser.add_argument("--hdfs-url", default=default_hdfs_url)
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
+    parser.add_argument(
+        "--hdfs-default-fs",
+        default=os.getenv("HDFS_DEFAULT_FS", derive_hdfs_default_fs(default_hdfs_url)),
+        help="Spark-accessible HDFS root, for example hdfs://namenode:9000.",
+    )
     parser.add_argument(
         "--webhdfs-redirect-host",
         default=os.getenv("WEBHDFS_REDIRECT_HOST", ""),
@@ -48,20 +54,30 @@ def build_processed_output_path(input_path: str, output_base_path: str) -> str:
 def create_spark_session(app_name: str):
     from pyspark.sql import SparkSession
 
+    spark_local_dir = Path(os.getenv("SPARK_LOCAL_DIR", str(Path(tempfile.gettempdir()) / "spark-local")))
+    spark_warehouse_dir = Path(
+        os.getenv("SPARK_WAREHOUSE_DIR", str(Path(tempfile.gettempdir()) / "spark-warehouse"))
+    )
+    spark_local_dir.mkdir(parents=True, exist_ok=True)
+    spark_warehouse_dir.mkdir(parents=True, exist_ok=True)
+
     spark = (
         SparkSession.builder.appName(app_name)
         .master(os.getenv("SPARK_MASTER", "local[*]"))
         .config("spark.sql.session.timeZone", "UTC")
+        .config("spark.local.dir", str(spark_local_dir))
+        .config("spark.sql.warehouse.dir", spark_warehouse_dir.resolve().as_uri())
         .getOrCreate()
     )
+    spark.conf.set("spark.hadoop.fs.defaultFS", os.getenv("HDFS_DEFAULT_FS", "hdfs://localhost:9000"))
     spark.sparkContext.setLogLevel("WARN")
     return spark
 
 
-def transform_local_json_to_parquet(
+def transform_hdfs_json_to_parquet(
     *,
-    local_input_path: str,
-    local_output_dir: str,
+    input_uri: str,
+    output_uri: str,
     app_name: str,
 ) -> tuple[int, dict[str, object]]:
     from pyspark.sql import functions as F
@@ -85,18 +101,10 @@ def transform_local_json_to_parquet(
     )
 
     try:
-        raw_df = spark.read.schema(schema).json(local_input_path).persist()
+        raw_df = spark.read.schema(schema).json(input_uri).persist()
 
-        published_ts = F.coalesce(
-            F.to_timestamp(F.col("published_at")),
-            F.to_timestamp(F.col("published_at"), "EEE, dd MMM yyyy HH:mm:ss z"),
-            F.to_timestamp(F.col("published_at"), "EEE, dd MMM yyyy HH:mm:ss Z"),
-        )
-
-        fetched_ts = F.coalesce(
-            F.to_timestamp(F.col("fetched_at")),
-            F.to_timestamp(F.col("fetched_at"), "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"),
-        )
+        published_ts = F.to_timestamp(F.col("published_at"))
+        fetched_ts = F.to_timestamp(F.col("fetched_at"))
 
         raw_metrics = raw_df.agg(
             F.count(F.lit(1)).alias("raw_count"),
@@ -147,7 +155,7 @@ def transform_local_json_to_parquet(
         if record_count == 0:
             raise SystemExit("No valid rows remained after Spark transformation.")
 
-        processed_df.write.mode("overwrite").parquet(local_output_dir)
+        processed_df.write.mode("overwrite").parquet(output_uri)
         metrics = {
             "raw_count": raw_count,
             "valid_row_count": valid_row_count,
@@ -175,45 +183,27 @@ def main() -> None:
     args = parse_args()
     from hdfs import InsecureClient
 
+    os.environ["HDFS_DEFAULT_FS"] = args.hdfs_default_fs
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
     source_path = resolve_latest_hdfs_file(client, args.input_path)
     target_path = build_processed_output_path(source_path, args.output_path)
+    source_uri = build_hdfs_uri(source_path, args.hdfs_default_fs)
+    target_uri = build_hdfs_uri(target_path, args.hdfs_default_fs)
 
-    with tempfile.TemporaryDirectory(prefix="news-transform-") as temp_dir:
-        local_input_path = str(Path(temp_dir) / "input.jsonl")
-        local_output_dir = str(Path(temp_dir) / "processed")
-
-        input_bytes = read_hdfs_bytes(
-            hdfs_url=args.hdfs_url,
-            hdfs_user=args.hdfs_user,
-            path=source_path,
-            redirect_host=args.webhdfs_redirect_host,
-        )
-        Path(local_input_path).write_bytes(input_bytes)
-
-        record_count, metrics = transform_local_json_to_parquet(
-            local_input_path=local_input_path,
-            local_output_dir=local_output_dir,
-            app_name=args.app_name,
-        )
-
-        client.delete(target_path, recursive=True)
-        client.makedirs(target_path)
-        upload_directory_to_hdfs(
-            client=client,
-            local_dir=local_output_dir,
-            hdfs_dir=target_path,
-            hdfs_url=args.hdfs_url,
-            hdfs_user=args.hdfs_user,
-            redirect_host=args.webhdfs_redirect_host,
-        )
+    record_count, metrics = transform_hdfs_json_to_parquet(
+        input_uri=source_uri,
+        output_uri=target_uri,
+        app_name=args.app_name,
+    )
 
     log_event(
         logger,
         20,
         "spark_processed_write_completed",
         input_path=source_path,
+        input_uri=source_uri,
         output_path=target_path,
+        output_uri=target_uri,
         row_count=record_count,
         raw_count=metrics["raw_count"],
         valid_row_count=metrics["valid_row_count"],

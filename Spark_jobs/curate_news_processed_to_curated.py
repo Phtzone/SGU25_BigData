@@ -2,27 +2,32 @@ from __future__ import annotations
 
 import argparse
 import os
-import tempfile
 import time
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
-    download_hdfs_directory,
+    build_hdfs_uri,
+    derive_hdfs_default_fs,
     list_hdfs_files,
-    upload_directory_to_hdfs,
 )
 from common.logging_utils import configure_logging, log_event
 
 
 def parse_args() -> argparse.Namespace:
+    default_hdfs_url = os.getenv("HDFS_URL", "http://localhost:9870")
     parser = argparse.ArgumentParser(
         description="Curate processed news Parquet into an analytics-ready HDFS zone."
     )
     parser.add_argument("--input-path", default=os.getenv("HDFS_PROCESSED_PATH", "/news/processed"))
     parser.add_argument("--output-path", default=os.getenv("HDFS_CURATED_PATH", "/news/curated"))
-    parser.add_argument("--hdfs-url", default=os.getenv("HDFS_URL", "http://localhost:9870"))
+    parser.add_argument("--hdfs-url", default=default_hdfs_url)
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
+    parser.add_argument(
+        "--hdfs-default-fs",
+        default=os.getenv("HDFS_DEFAULT_FS", derive_hdfs_default_fs(default_hdfs_url)),
+        help="Spark-accessible HDFS root, for example hdfs://namenode:9000.",
+    )
     parser.add_argument(
         "--webhdfs-redirect-host",
         default=os.getenv("WEBHDFS_REDIRECT_HOST", ""),
@@ -61,10 +66,10 @@ def build_curated_output_path(processed_batch_path: str, output_base_path: str) 
     return str(PurePosixPath(output_base_path, year, month, day, batch_name))
 
 
-def transform_local_processed_to_curated(
+def transform_hdfs_processed_to_curated(
     *,
-    local_input_dir: str,
-    local_output_dir: str,
+    input_uri: str,
+    output_uri: str,
     app_name: str,
 ) -> tuple[int, dict[str, object]]:
     from pyspark.sql import functions as F
@@ -74,7 +79,7 @@ def transform_local_processed_to_curated(
     curated_df = None
 
     try:
-        processed_df = spark.read.parquet(local_input_dir).persist()
+        processed_df = spark.read.parquet(input_uri).persist()
         input_row_count = int(processed_df.agg(F.count(F.lit(1)).alias("input_row_count")).collect()[0]["input_row_count"])
 
         curated_df = (
@@ -113,7 +118,7 @@ def transform_local_processed_to_curated(
             .agg(F.count(F.lit(1)).alias("partition_count"))
             .collect()[0]["partition_count"]
         )
-        curated_df.write.mode("overwrite").partitionBy("event_date", "source").parquet(local_output_dir)
+        curated_df.write.mode("overwrite").partitionBy("event_date", "source").parquet(output_uri)
         metrics = {
             "input_row_count": input_row_count,
             "duplicate_count": input_row_count - record_count,
@@ -135,46 +140,27 @@ def main() -> None:
     args = parse_args()
     from hdfs import InsecureClient
 
+    os.environ["HDFS_DEFAULT_FS"] = args.hdfs_default_fs
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
     source_batch_path = resolve_latest_processed_batch(client, args.input_path)
     target_path = build_curated_output_path(source_batch_path, args.output_path)
+    source_uri = build_hdfs_uri(source_batch_path, args.hdfs_default_fs)
+    target_uri = build_hdfs_uri(target_path, args.hdfs_default_fs)
 
-    with tempfile.TemporaryDirectory(prefix="news-curated-") as temp_dir:
-        local_input_dir = str(Path(temp_dir) / "processed")
-        local_output_dir = str(Path(temp_dir) / "curated")
-
-        download_hdfs_directory(
-            client=client,
-            hdfs_dir=source_batch_path,
-            local_dir=local_input_dir,
-            hdfs_url=args.hdfs_url,
-            hdfs_user=args.hdfs_user,
-            redirect_host=args.webhdfs_redirect_host,
-        )
-
-        record_count, metrics = transform_local_processed_to_curated(
-            local_input_dir=local_input_dir,
-            local_output_dir=local_output_dir,
-            app_name=args.app_name,
-        )
-
-        client.delete(target_path, recursive=True)
-        client.makedirs(target_path)
-        upload_directory_to_hdfs(
-            client=client,
-            local_dir=local_output_dir,
-            hdfs_dir=target_path,
-            hdfs_url=args.hdfs_url,
-            hdfs_user=args.hdfs_user,
-            redirect_host=args.webhdfs_redirect_host,
-        )
+    record_count, metrics = transform_hdfs_processed_to_curated(
+        input_uri=source_uri,
+        output_uri=target_uri,
+        app_name=args.app_name,
+    )
 
     log_event(
         logger,
         20,
         "spark_curated_write_completed",
         input_path=source_batch_path,
+        input_uri=source_uri,
         output_path=target_path,
+        output_uri=target_uri,
         row_count=record_count,
         input_row_count=metrics["input_row_count"],
         duplicate_count=metrics["duplicate_count"],

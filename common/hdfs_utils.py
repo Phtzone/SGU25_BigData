@@ -12,6 +12,20 @@ else:
     InsecureClient = Any
 
 
+def derive_hdfs_default_fs(hdfs_url: str, default_port: int = 9000) -> str:
+    parts = urlsplit(hdfs_url)
+    host = parts.hostname or "localhost"
+    return f"hdfs://{host}:{default_port}"
+
+
+def build_hdfs_uri(path: str, hdfs_default_fs: str) -> str:
+    if "://" in path:
+        return path
+
+    normalized_path = str(PurePosixPath("/", path.lstrip("/")))
+    return f"{hdfs_default_fs.rstrip('/')}{normalized_path}"
+
+
 def rewrite_webhdfs_redirect(
     location: str,
     requested_hdfs_url: str,

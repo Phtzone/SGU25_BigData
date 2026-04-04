@@ -33,9 +33,13 @@ Use `WSL/Linux + Docker Desktop`.
 `- docs/
 ```
 
-## Architecture Diagram
+## Component Architecture Diagram
 
 ![Project architecture](docs/project_architecture.svg)
+
+## Data Architecture Diagram
+
+![Data architecture](docs/data_architecture_diagram.svg)
 
 ## Services in Docker Compose
 
@@ -49,6 +53,7 @@ The core stack includes:
 The optional `airflow` profile adds:
 
 - `postgres`
+- `postgres-analytics`
 - `airflow-init`
 - `airflow-webserver`
 - `airflow-scheduler`
@@ -60,6 +65,7 @@ Exposed ports:
 - NameNode UI: `localhost:9870`
 - NameNode RPC: `localhost:9000`
 - DataNode UI: `localhost:9864`
+- Analytics PostgreSQL: `localhost:5433` when the `airflow` profile is enabled
 - Airflow UI: `localhost:8080` when the `airflow` profile is enabled
 
 ## Setup in WSL/Linux
@@ -76,6 +82,12 @@ python -m pip install -r requirements.txt
 Using a venv inside `/mnt/d/...` can fail on WSL because `ensurepip` is unreliable on mounted Windows paths. A Linux-home venv such as `~/venvs/sgu25_bigdata` is the recommended setup for this repo.
 
 Phase 1 adds a local PySpark transform step, so Java 17 must also be available when you run the transform outside Docker.
+
+Spark jobs now read from and write to HDFS directly through the NameNode RPC endpoint. If you need to override the default, set `HDFS_DEFAULT_FS` explicitly:
+
+```bash
+export HDFS_DEFAULT_FS=hdfs://localhost:9000
+```
 
 Start the core infrastructure:
 
@@ -100,10 +112,25 @@ This creates:
 
 ## Run the Core Pipeline
 
+Run the full end-to-end demo (one command):
+
+```bash
+bash scripts/demo_end_to_end.sh
+```
+
+This command starts Docker services, ensures Kafka topics, runs the pipeline (`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated`), loads curated data into PostgreSQL analytics, and prints summary outputs.
+
 Publish RSS items into Kafka:
 
 ```bash
 python -m producer.run_producer
+```
+
+Producer and consumer startup now wait briefly for Kafka readiness. You can tune that behavior with:
+
+```bash
+export KAFKA_STARTUP_TIMEOUT_SECONDS=90
+export KAFKA_STARTUP_CHECK_INTERVAL_SECONDS=3
 ```
 
 Consume Kafka messages and write them to HDFS raw storage:
@@ -144,6 +171,34 @@ Validate curated output:
 
 ```bash
 python -m scripts.validate_curated_output --path /news/curated
+```
+
+Load the latest curated batch into analytics PostgreSQL:
+
+```bash
+python -m scripts.load_curated_to_postgres --input-path /news/curated
+```
+
+By default this script upserts into:
+
+- `ods_news_articles`
+- `mart_news_daily_source`
+
+The loader is idempotent per curated batch path and tracks loaded batches in `analytics_load_history`.
+
+View analytics data in PostgreSQL:
+
+```bash
+docker compose --profile airflow exec postgres-analytics psql -U analytics -d analytics
+```
+
+Run sample queries in `psql`:
+
+```sql
+\dt
+SELECT * FROM analytics_load_history ORDER BY loaded_at DESC LIMIT 20;
+SELECT * FROM ods_news_articles ORDER BY loaded_at DESC LIMIT 20;
+SELECT * FROM mart_news_daily_source ORDER BY event_date DESC, source LIMIT 20;
 ```
 
 Run the full MVP smoke test:
@@ -224,6 +279,8 @@ Files involved:
 - `Spark_jobs/curate_news_processed_to_curated.py`
 - `scripts/validate_processed_output.py`
 - `scripts/validate_curated_output.py`
+- `scripts/load_curated_to_postgres.py`
+- `sql/analytics_init.sql`
 
 Start Airflow:
 
@@ -250,7 +307,9 @@ The DAG runs the same commands you already verified manually, but inside Docker 
 
 - Kafka: `kafka:29092`
 - HDFS NameNode: `namenode:9870`
+- HDFS default FS for Spark: `hdfs://namenode:9000`
 - WebHDFS redirect host: `datanode`
+- Analytics PostgreSQL: `postgres-analytics:5432`
 
 The phase-1 DAG order is now:
 
@@ -261,4 +320,5 @@ fetch_and_publish_articles
   -> validate_processed_zone
   -> curate_processed_to_curated_zone
   -> validate_curated_zone
+  -> load_curated_to_analytics_db
 ```

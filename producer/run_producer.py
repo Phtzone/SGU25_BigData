@@ -24,6 +24,7 @@ def main() -> None:
     producer = NewsKafkaProducer(
         bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9093"),
         topic=os.getenv("KAFKA_TOPIC", "news_raw"),
+        logger=logger,
     )
     topic = os.getenv("KAFKA_TOPIC", "news_raw")
 

@@ -10,6 +10,7 @@ from typing import Any, TYPE_CHECKING
 from common.data_quality import summarize_article_quality
 from common.article_schema import normalize_article_record, normalize_text, validate_article_record
 from common.hdfs_utils import upload_hdfs_bytes
+from common.kafka_utils import create_kafka_client_with_retry
 from common.logging_utils import configure_logging, log_event
 
 if TYPE_CHECKING:
@@ -50,15 +51,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def create_consumer(args: argparse.Namespace):
+def create_consumer(args: argparse.Namespace, logger: Any | None = None):
     from kafka import KafkaConsumer
 
-    return KafkaConsumer(
-        args.topic,
+    return create_kafka_client_with_retry(
+        client_name="consumer",
         bootstrap_servers=args.bootstrap_servers,
-        auto_offset_reset="earliest",
-        enable_auto_commit=False,
-        group_id=args.group_id,
+        logger=logger,
+        factory=lambda: KafkaConsumer(
+            args.topic,
+            bootstrap_servers=args.bootstrap_servers,
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+            group_id=args.group_id,
+        ),
     )
 
 
@@ -240,20 +246,25 @@ def write_jsonl_to_hdfs(
     )
 
 
-def create_dead_letter_producer(args: argparse.Namespace):
+def create_dead_letter_producer(args: argparse.Namespace, logger: Any | None = None):
     if not args.dead_letter_topic:
         return None
 
     from kafka import KafkaProducer
 
-    return KafkaProducer(
+    return create_kafka_client_with_retry(
+        client_name="dead_letter_producer",
         bootstrap_servers=args.bootstrap_servers,
-        acks="all",
-        retries=3,
-        retry_backoff_ms=1000,
-        linger_ms=50,
-        key_serializer=lambda value: value.encode("utf-8"),
-        value_serializer=lambda value: json.dumps(value, ensure_ascii=False).encode("utf-8"),
+        logger=logger,
+        factory=lambda: KafkaProducer(
+            bootstrap_servers=args.bootstrap_servers,
+            acks="all",
+            retries=3,
+            retry_backoff_ms=1000,
+            linger_ms=50,
+            key_serializer=lambda value: value.encode("utf-8"),
+            value_serializer=lambda value: json.dumps(value, ensure_ascii=False).encode("utf-8"),
+        ),
     )
 
 
@@ -341,9 +352,9 @@ def main() -> None:
     logger = configure_logging("consumer")
     started_at = time.perf_counter()
     args = parse_args()
-    consumer = create_consumer(args)
+    consumer = create_consumer(args, logger=logger)
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
-    dead_letter_producer = create_dead_letter_producer(args)
+    dead_letter_producer = create_dead_letter_producer(args, logger=logger)
 
     try:
         rows = collect_messages(

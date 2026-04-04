@@ -22,13 +22,27 @@ x-airflow-common: &airflow-common
     KAFKA_TOPIC: news_raw
     KAFKA_DEAD_LETTER_TOPIC: news_dead_letter
     KAFKA_CONSUMER_GROUP: news-raw-to-hdfs-airflow
+    KAFKA_STARTUP_TIMEOUT_SECONDS: "90"
+    KAFKA_STARTUP_CHECK_INTERVAL_SECONDS: "3"
     HDFS_URL: http://namenode:9870
+    HDFS_DEFAULT_FS: hdfs://namenode:9000
     HDFS_USER: root
     HDFS_RAW_PATH: /news/raw
     HDFS_PROCESSED_PATH: /news/processed
     HDFS_CURATED_PATH: /news/curated
+    ANALYTICS_DB_HOST: postgres-analytics
+    ANALYTICS_DB_PORT: "5432"
+    ANALYTICS_DB_NAME: analytics
+    ANALYTICS_DB_USER: analytics
+    ANALYTICS_DB_PASSWORD: analytics
+    ANALYTICS_BATCH_HISTORY_TABLE: analytics_load_history
+    ANALYTICS_ODS_TABLE: ods_news_articles
+    ANALYTICS_MART_TABLE: mart_news_daily_source
     WEBHDFS_REDIRECT_HOST: datanode
+    AIRFLOW_RUN_DIR: /tmp
     SPARK_MASTER: local[*]
+    SPARK_LOCAL_DIR: /tmp/spark-local
+    SPARK_LOCAL_DIRS: /tmp/spark-local
     LOG_JSON: "1"
   volumes:
     - ./dags:/opt/airflow/dags:ro
@@ -37,6 +51,10 @@ x-airflow-common: &airflow-common
     - ./:/opt/airflow/project:ro
   depends_on:
     postgres:
+      condition: service_healthy
+    postgres-analytics:
+      condition: service_healthy
+    kafka:
       condition: service_healthy
 
 services:
@@ -66,6 +84,12 @@ services:
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9093
       KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:29092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
 
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
@@ -123,6 +147,27 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres-analytics:
+    image: postgres:16
+    hostname: postgres-analytics
+    profiles:
+      - airflow
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: analytics
+      POSTGRES_PASSWORD: analytics
+      POSTGRES_DB: analytics
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-analytics-db-volume:/var/lib/postgresql/data
+      - ./sql/analytics_init.sql:/docker-entrypoint-initdb.d/analytics_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analytics -d analytics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   airflow-init:
     <<: *airflow-common
     restart: "no"
@@ -152,3 +197,4 @@ volumes:
   namenode:
   datanode:
   postgres-db-volume:
+  postgres-analytics-db-volume:
