@@ -33,9 +33,9 @@ Use `WSL/Linux + Docker Desktop`.
 `- docs/
 ```
 
-## Pipeline Diagram
+## Architecture Components
 
-![SGU25 BigData pipeline](docs/sgu25_bigdata_pipeline.svg)
+![Real-Time News Analytics Pipeline](docs/Flow.png)
 
 ## Services in Docker Compose
 
