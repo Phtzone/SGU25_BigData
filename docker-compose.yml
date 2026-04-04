@@ -22,6 +22,7 @@ x-airflow-common: &airflow-common
     KAFKA_TOPIC: news_raw
     KAFKA_DEAD_LETTER_TOPIC: news_dead_letter
     KAFKA_CONSUMER_GROUP: news-raw-to-hdfs-airflow
+    KAFKA_AUTO_OFFSET_RESET: latest
     KAFKA_STARTUP_TIMEOUT_SECONDS: "90"
     KAFKA_STARTUP_CHECK_INTERVAL_SECONDS: "3"
     HDFS_URL: http://namenode:9870

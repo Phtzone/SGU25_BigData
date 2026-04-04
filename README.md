@@ -33,13 +33,9 @@ Use `WSL/Linux + Docker Desktop`.
 `- docs/
 ```
 
-## Component Architecture Diagram
+## Pipeline Diagram
 
-![Project architecture](docs/project_architecture.svg)
-
-## Data Architecture Diagram
-
-![Data architecture](docs/data_architecture_diagram.svg)
+![SGU25 BigData pipeline](docs/sgu25_bigdata_pipeline.svg)
 
 ## Services in Docker Compose
 
@@ -140,6 +136,14 @@ python -m consumer.kafka_consumer_to_hdfs --max-messages 50
 ```
 
 The default consumer group is `news-raw-to-hdfs-v1` locally and `news-raw-to-hdfs-airflow` in Docker Airflow.
+
+If you want a fresh consumer group to skip historical Kafka backlog and only read new messages, run:
+
+```bash
+python -m consumer.kafka_consumer_to_hdfs --max-messages 50 --auto-offset-reset latest
+```
+
+The Airflow profile is configured with `KAFKA_AUTO_OFFSET_RESET=latest`, and the DAG explicitly passes `--auto-offset-reset latest`, so new Airflow deployments consume only new Kafka messages by default.
 
 When the consumer runs from WSL/local and `HDFS_URL` points to `localhost`, it automatically rewrites WebHDFS redirects back to `localhost` so it can upload to the exposed DataNode port.
 

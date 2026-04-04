@@ -38,7 +38,7 @@ with DAG(
     consume_kafka_to_raw_zone = BashOperator(
         task_id="consume_kafka_to_raw_zone",
         bash_command=run_project_command(
-            "python -m consumer.kafka_consumer_to_hdfs --max-messages 100"
+            "python -m consumer.kafka_consumer_to_hdfs --max-messages 100 --auto-offset-reset latest"
         ),
     )
 

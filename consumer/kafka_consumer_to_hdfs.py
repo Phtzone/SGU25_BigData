@@ -31,6 +31,12 @@ def parse_args() -> argparse.Namespace:
         "--group-id",
         default=os.getenv("KAFKA_CONSUMER_GROUP", "news-raw-to-hdfs-v1"),
     )
+    parser.add_argument(
+        "--auto-offset-reset",
+        choices=("earliest", "latest"),
+        default=os.getenv("KAFKA_AUTO_OFFSET_RESET", "earliest"),
+        help="Where to start consuming when no committed offset exists for the group.",
+    )
     parser.add_argument("--hdfs-url", default=os.getenv("HDFS_URL", "http://localhost:9870"))
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
     parser.add_argument(
@@ -61,7 +67,7 @@ def create_consumer(args: argparse.Namespace, logger: Any | None = None):
         factory=lambda: KafkaConsumer(
             args.topic,
             bootstrap_servers=args.bootstrap_servers,
-            auto_offset_reset="earliest",
+            auto_offset_reset=args.auto_offset_reset,
             enable_auto_commit=False,
             group_id=args.group_id,
         ),

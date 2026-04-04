@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
 
 from consumer.kafka_consumer_to_hdfs import (
     build_output_path,
     commit_processed_offsets,
     normalize_rows_for_storage,
+    parse_args,
 )
 
 
@@ -70,6 +72,13 @@ class ConsumerUtilsTests(unittest.TestCase):
         consumer = FakeConsumer()
         commit_processed_offsets(consumer)
         self.assertTrue(consumer.committed)
+
+    def test_parse_args_reads_auto_offset_reset(self) -> None:
+        with patch.dict("os.environ", {"KAFKA_AUTO_OFFSET_RESET": "latest"}, clear=False):
+            with patch("sys.argv", ["consumer.kafka_consumer_to_hdfs"]):
+                args = parse_args()
+
+        self.assertEqual(args.auto_offset_reset, "latest")
 
 
 if __name__ == "__main__":
