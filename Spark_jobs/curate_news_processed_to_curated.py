@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import os
 import time
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
     list_hdfs_files,
+    resolve_explicit_or_latest_path,
 )
 from common.logging_utils import configure_logging, log_event
 
@@ -20,6 +21,11 @@ def parse_args() -> argparse.Namespace:
         description="Curate processed news Parquet into an analytics-ready HDFS zone."
     )
     parser.add_argument("--input-path", default=os.getenv("HDFS_PROCESSED_PATH", "/news/processed"))
+    parser.add_argument(
+        "--input-batch-path",
+        default="",
+        help="Optional exact processed HDFS batch path. When provided, this batch is used instead of resolving the latest processed batch.",
+    )
     parser.add_argument("--output-path", default=os.getenv("HDFS_CURATED_PATH", "/news/curated"))
     parser.add_argument("--hdfs-url", default=default_hdfs_url)
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
@@ -37,6 +43,11 @@ def parse_args() -> argparse.Namespace:
         "--app-name",
         default="news-processed-to-curated",
         help="Spark application name.",
+    )
+    parser.add_argument(
+        "--write-output-path-file",
+        default="",
+        help="Optional local file used to persist the exact curated HDFS batch path for downstream tasks.",
     )
     return parser.parse_args()
 
@@ -64,6 +75,15 @@ def build_curated_output_path(processed_batch_path: str, output_base_path: str) 
 
     year, month, day, batch_name = input_parts[-4:]
     return str(PurePosixPath(output_base_path, year, month, day, batch_name))
+
+
+def write_output_path_file(path_file: str, output_path: str) -> None:
+    if not path_file.strip():
+        return
+
+    path = Path(path_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(output_path + "\n", encoding="utf-8")
 
 
 def transform_hdfs_processed_to_curated(
@@ -142,7 +162,12 @@ def main() -> None:
 
     os.environ["HDFS_DEFAULT_FS"] = args.hdfs_default_fs
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
-    source_batch_path = resolve_latest_processed_batch(client, args.input_path)
+    source_batch_path = resolve_explicit_or_latest_path(
+        client,
+        explicit_path=args.input_batch_path,
+        fallback_path=args.input_path,
+        latest_resolver=resolve_latest_processed_batch,
+    )
     target_path = build_curated_output_path(source_batch_path, args.output_path)
     source_uri = build_hdfs_uri(source_batch_path, args.hdfs_default_fs)
     target_uri = build_hdfs_uri(target_path, args.hdfs_default_fs)
@@ -152,6 +177,7 @@ def main() -> None:
         output_uri=target_uri,
         app_name=args.app_name,
     )
+    write_output_path_file(args.write_output_path_file, target_path)
 
     log_event(
         logger,

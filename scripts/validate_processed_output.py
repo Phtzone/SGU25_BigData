@@ -23,8 +23,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    logger = configure_logging("validate_processed")
     args = parse_args()
+    logger = configure_logging("validate_processed") if not args.json else None
     from hdfs import InsecureClient
 
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)

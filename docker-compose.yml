@@ -31,19 +31,25 @@ x-airflow-common: &airflow-common
     HDFS_RAW_PATH: /news/raw
     HDFS_PROCESSED_PATH: /news/processed
     HDFS_CURATED_PATH: /news/curated
+    HDFS_KEYWORDS_PATH: /news/keywords
     ANALYTICS_DB_HOST: postgres-analytics
     ANALYTICS_DB_PORT: "5432"
     ANALYTICS_DB_NAME: analytics
     ANALYTICS_DB_USER: analytics
     ANALYTICS_DB_PASSWORD: analytics
     ANALYTICS_BATCH_HISTORY_TABLE: analytics_load_history
+    ANALYTICS_KEYWORD_BATCH_HISTORY_TABLE: analytics_keyword_load_history
     ANALYTICS_ODS_TABLE: ods_news_articles
     ANALYTICS_MART_TABLE: mart_news_daily_source
+    ANALYTICS_ARTICLE_KEYWORDS_TABLE: mart_article_keywords
+    ANALYTICS_KEYWORD_DAILY_SOURCE_TABLE: mart_keyword_daily_source
     WEBHDFS_REDIRECT_HOST: datanode
     AIRFLOW_RUN_DIR: /tmp
     SPARK_MASTER: local[*]
     SPARK_LOCAL_DIR: /tmp/spark-local
     SPARK_LOCAL_DIRS: /tmp/spark-local
+    KEYWORD_SETTINGS_PATH: /opt/airflow/project/config/keyword_settings.json
+    KEYWORD_STOPWORDS_PATH: /opt/airflow/project/config/stopwords_vi.txt
     LOG_JSON: "1"
   volumes:
     - ./dags:/opt/airflow/dags:ro
@@ -153,6 +159,7 @@ services:
     hostname: postgres-analytics
     profiles:
       - airflow
+      - dashboard
     restart: unless-stopped
     environment:
       POSTGRES_USER: analytics
@@ -168,6 +175,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  streamlit-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    profiles:
+      - dashboard
+    restart: unless-stopped
+    environment:
+      ANALYTICS_DB_HOST: postgres-analytics
+      ANALYTICS_DB_PORT: "5432"
+      ANALYTICS_DB_NAME: analytics
+      ANALYTICS_DB_USER: analytics
+      ANALYTICS_DB_PASSWORD: analytics
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "8501:8501"
+    depends_on:
+      postgres-analytics:
+        condition: service_healthy
 
   airflow-init:
     <<: *airflow-common

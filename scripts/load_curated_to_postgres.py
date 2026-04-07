@@ -8,7 +8,12 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from Spark_jobs.transform_news_raw_to_processed import create_spark_session
-from common.hdfs_utils import build_hdfs_uri, derive_hdfs_default_fs, list_hdfs_files
+from common.hdfs_utils import (
+    build_hdfs_uri,
+    derive_hdfs_default_fs,
+    list_hdfs_files,
+    resolve_explicit_or_latest_path,
+)
 from common.logging_utils import configure_logging, log_event
 
 
@@ -18,6 +23,11 @@ def parse_args() -> argparse.Namespace:
         description="Load curated Parquet from HDFS into analytics PostgreSQL tables."
     )
     parser.add_argument("--input-path", default=os.getenv("HDFS_CURATED_PATH", "/news/curated"))
+    parser.add_argument(
+        "--input-batch-path",
+        default="",
+        help="Optional exact curated HDFS batch path. When provided, this batch is used instead of resolving the latest curated batch.",
+    )
     parser.add_argument("--hdfs-url", default=default_hdfs_url)
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
     parser.add_argument(
@@ -374,7 +384,12 @@ def main() -> None:
     os.environ["HDFS_DEFAULT_FS"] = args.hdfs_default_fs
     hdfs_client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
 
-    batch_path = resolve_latest_curated_batch(hdfs_client, args.input_path)
+    batch_path = resolve_explicit_or_latest_path(
+        hdfs_client,
+        explicit_path=args.input_batch_path,
+        fallback_path=args.input_path,
+        latest_resolver=resolve_latest_curated_batch,
+    )
     input_uri = build_hdfs_uri(batch_path, args.hdfs_default_fs)
 
     log_event(

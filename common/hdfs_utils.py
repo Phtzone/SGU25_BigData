@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterator, TYPE_CHECKING
+from typing import Any, Callable, Iterator, TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -76,6 +76,22 @@ def resolve_latest_hdfs_file(client: InsecureClient, path: str) -> str:
 
     latest_path, _ = max(files, key=lambda item: item[1]["modificationTime"])
     return latest_path
+
+
+def resolve_explicit_or_latest_path(
+    client: InsecureClient,
+    *,
+    explicit_path: str,
+    fallback_path: str,
+    latest_resolver: Callable[[InsecureClient, str], str],
+) -> str:
+    requested_path = explicit_path.strip()
+    if requested_path:
+        if not client.status(requested_path, strict=False):
+            raise SystemExit(f"HDFS path does not exist: {requested_path}")
+        return requested_path
+
+    return latest_resolver(client, fallback_path)
 
 
 def read_hdfs_bytes(

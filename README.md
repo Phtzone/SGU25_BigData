@@ -2,7 +2,7 @@
 
 This repository is organized around the Big Data MVP:
 
-`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated`
+`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords`
 
 Airflow orchestration is implemented as an optional Docker Compose profile on top of the working MVP stack.
 
@@ -21,10 +21,13 @@ Use `WSL/Linux + Docker Desktop`.
 |- docker-compose.yml
 |- requirements.txt
 |- requirements-airflow.txt
+|- requirements-dashboard.txt
+|- Dockerfile.streamlit
 |- producer/
 |- consumer/
 |- common/
 |- config/
+|- dashboard/
 |- dags/
 |- scripts/
 |- tests/
@@ -54,6 +57,10 @@ The optional `airflow` profile adds:
 - `airflow-webserver`
 - `airflow-scheduler`
 
+The optional `dashboard` profile adds:
+
+- `streamlit-dashboard`
+
 Exposed ports:
 
 - Kafka external listener: `localhost:9093`
@@ -63,6 +70,7 @@ Exposed ports:
 - DataNode UI: `localhost:9864`
 - Analytics PostgreSQL: `localhost:5433` when the `airflow` profile is enabled
 - Airflow UI: `localhost:8080` when the `airflow` profile is enabled
+- Streamlit UI: `localhost:8501` when the `dashboard` profile is enabled
 
 ## Setup in WSL/Linux
 
@@ -76,6 +84,8 @@ python -m pip install -r requirements.txt
 ```
 
 Using a venv inside `/mnt/d/...` can fail on WSL because `ensurepip` is unreliable on mounted Windows paths. A Linux-home venv such as `~/venvs/sgu25_bigdata` is the recommended setup for this repo.
+
+If your shell does not expose `python`, use `python3` instead. The provided shell scripts auto-detect `python` or `python3`.
 
 Phase 1 adds a local PySpark transform step, so Java 17 must also be available when you run the transform outside Docker.
 
@@ -114,7 +124,7 @@ Run the full end-to-end demo (one command):
 bash scripts/demo_end_to_end.sh
 ```
 
-This command starts Docker services, ensures Kafka topics, runs the pipeline (`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated`), loads curated data into PostgreSQL analytics, and prints summary outputs.
+This command starts Docker services, ensures Kafka topics, runs the pipeline (`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords`), loads curated and keyword data into PostgreSQL analytics, and prints summary outputs.
 
 Publish RSS items into Kafka:
 
@@ -127,6 +137,13 @@ Producer and consumer startup now wait briefly for Kafka readiness. You can tune
 ```bash
 export KAFKA_STARTUP_TIMEOUT_SECONDS=90
 export KAFKA_STARTUP_CHECK_INTERVAL_SECONDS=3
+```
+
+The demo and smoke-test shell scripts also wait for the external Kafka listener on `localhost:9093` before starting local Python producer and consumer steps. You can override that check with:
+
+```bash
+export KAFKA_WAIT_HOST=localhost
+export KAFKA_WAIT_PORT=9093
 ```
 
 Consume Kafka messages and write them to HDFS raw storage:
@@ -177,6 +194,18 @@ Validate curated output:
 python -m scripts.validate_curated_output --path /news/curated
 ```
 
+Extract keywords from the latest curated batch:
+
+```bash
+python -m Spark_jobs.extract_news_keywords --input-path /news/curated --output-path /news/keywords
+```
+
+Validate keyword output:
+
+```bash
+python -m scripts.validate_keyword_output --path /news/keywords
+```
+
 Load the latest curated batch into analytics PostgreSQL:
 
 ```bash
@@ -190,6 +219,26 @@ By default this script upserts into:
 
 The loader is idempotent per curated batch path and tracks loaded batches in `analytics_load_history`.
 
+Load the latest keyword batch into analytics PostgreSQL:
+
+```bash
+python -m scripts.load_keywords_to_postgres --input-path /news/keywords
+```
+
+By default this script upserts into:
+
+- `mart_article_keywords`
+- `mart_keyword_daily_source`
+
+The keyword loader is idempotent per keyword batch path and tracks loaded batches in `analytics_keyword_load_history`.
+The loader also refreshes dashboard-ready PostgreSQL views for Streamlit:
+
+- `vw_streamlit_article_keywords_latest`
+- `vw_streamlit_keyword_daily_source_latest`
+- `vw_streamlit_keyword_daily_overall_latest`
+
+All downstream batch-oriented jobs also accept `--input-batch-path` when you want to pin an exact upstream batch instead of resolving the latest available one.
+
 View analytics data in PostgreSQL:
 
 ```bash
@@ -201,11 +250,105 @@ Run sample queries in `psql`:
 ```sql
 \dt
 SELECT * FROM analytics_load_history ORDER BY loaded_at DESC LIMIT 20;
+SELECT * FROM analytics_keyword_load_history ORDER BY loaded_at DESC LIMIT 20;
 SELECT * FROM ods_news_articles ORDER BY loaded_at DESC LIMIT 20;
 SELECT * FROM mart_news_daily_source ORDER BY event_date DESC, source LIMIT 20;
+SELECT * FROM mart_article_keywords ORDER BY loaded_at DESC LIMIT 20;
+SELECT * FROM mart_keyword_daily_source ORDER BY event_date DESC, source, rank_in_group LIMIT 20;
+SELECT * FROM vw_streamlit_keyword_daily_source_latest ORDER BY event_date DESC, source, rank_in_group LIMIT 20;
+SELECT * FROM vw_streamlit_keyword_daily_overall_latest ORDER BY event_date DESC, rank_in_day LIMIT 20;
+SELECT * FROM vw_streamlit_article_keywords_latest ORDER BY loaded_at DESC, rank_in_article LIMIT 20;
 ```
 
-Run the full MVP smoke test:
+## Streamlit-Ready Keyword Views
+
+For a Streamlit dashboard, prefer reading the prepared views instead of querying batch tables directly:
+
+- `vw_streamlit_keyword_daily_source_latest`
+  - Use for top keywords by `event_date + source`
+- `vw_streamlit_keyword_daily_overall_latest`
+  - Use for top keywords by `event_date` across all sources
+- `vw_streamlit_article_keywords_latest`
+  - Use for per-article keyword candidates
+
+Example queries:
+
+```sql
+SELECT event_date, source, keyword, article_count, weighted_score, rank_in_group
+FROM vw_streamlit_keyword_daily_source_latest
+WHERE event_date = CURRENT_DATE
+  AND source = 'VNExpress'
+ORDER BY rank_in_group
+LIMIT 20;
+
+SELECT event_date, keyword, source_count, article_count, weighted_score, rank_in_day
+FROM vw_streamlit_keyword_daily_overall_latest
+WHERE event_date >= CURRENT_DATE - INTERVAL '7 days'
+ORDER BY event_date DESC, rank_in_day
+LIMIT 100;
+
+SELECT source, title, keyword, article_score, rank_in_article
+FROM vw_streamlit_article_keywords_latest
+WHERE event_date = CURRENT_DATE
+ORDER BY source, rank_in_article
+LIMIT 100;
+```
+
+## Streamlit Dashboard
+
+The repository now includes a Streamlit dashboard at `dashboard/streamlit_app.py`.
+
+Install app dependencies locally:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dashboard.txt
+```
+
+Run the dashboard from WSL/Linux:
+
+```bash
+streamlit run dashboard/streamlit_app.py
+```
+
+By default the app connects to analytics PostgreSQL with:
+
+- `ANALYTICS_DB_HOST=localhost`
+- `ANALYTICS_DB_PORT=5433`
+- `ANALYTICS_DB_NAME=analytics`
+- `ANALYTICS_DB_USER=analytics`
+- `ANALYTICS_DB_PASSWORD=analytics`
+
+You can override these with environment variables or Streamlit secrets:
+
+```toml
+[analytics_db]
+analytics_db_host = "localhost"
+analytics_db_port = "5433"
+analytics_db_name = "analytics"
+analytics_db_user = "analytics"
+analytics_db_password = "analytics"
+```
+
+To run the dashboard with Docker Compose:
+
+```bash
+docker compose --profile dashboard up -d postgres-analytics streamlit-dashboard
+```
+
+If you already have loaded keyword marts, open `http://localhost:8501` and use the prepared tabs:
+
+- `Overall Trends`
+- `Source Trends`
+- `Article Keywords`
+
+The dashboard currently includes:
+
+- daily keyword momentum charts across the selected date range
+- a breakout keyword table comparing the latest day with prior history
+- source-specific drill-down from source trends to supporting article rows
+
+Run the full MVP + keyword smoke test:
 
 ```bash
 bash scripts/test_pipeline.sh
@@ -243,6 +386,13 @@ The curated job writes analytics-ready Parquet batches under:
 /news/curated/YYYY/MM/DD/news_HHMMSSffffff/
 ```
 
+The keyword extraction job writes keyword analytics batches under:
+
+```text
+/news/keywords/YYYY/MM/DD/news_HHMMSSffffff/article_keywords/
+/news/keywords/YYYY/MM/DD/news_HHMMSSffffff/keyword_daily_source/
+```
+
 See `docs/data_contract.md` for the shared article schema and validation rules.
 
 ## Observability And Quality
@@ -259,7 +409,7 @@ Each major step logs stable fields such as:
 - `output_path`
 - `duration_ms`
 
-Data quality metrics are logged during producer fetch, Kafka consumption, and Spark transforms:
+Data quality metrics are logged during producer fetch, Kafka consumption, Spark transforms, and keyword extraction:
 
 - missing `title` count and rate
 - missing `link` count and rate
@@ -281,9 +431,12 @@ Files involved:
 - `scripts/start_airflow.sh`
 - `Spark_jobs/transform_news_raw_to_processed.py`
 - `Spark_jobs/curate_news_processed_to_curated.py`
+- `Spark_jobs/extract_news_keywords.py`
 - `scripts/validate_processed_output.py`
 - `scripts/validate_curated_output.py`
+- `scripts/validate_keyword_output.py`
 - `scripts/load_curated_to_postgres.py`
+- `scripts/load_keywords_to_postgres.py`
 - `sql/analytics_init.sql`
 
 Start Airflow:
@@ -315,7 +468,7 @@ The DAG runs the same commands you already verified manually, but inside Docker 
 - WebHDFS redirect host: `datanode`
 - Analytics PostgreSQL: `postgres-analytics:5432`
 
-The phase-1 DAG order is now:
+The current DAG order is now:
 
 ```text
 fetch_and_publish_articles
@@ -324,5 +477,8 @@ fetch_and_publish_articles
   -> validate_processed_zone
   -> curate_processed_to_curated_zone
   -> validate_curated_zone
-  -> load_curated_to_analytics_db
+     -> load_curated_to_analytics_db
+     -> extract_keywords_from_curated_zone
+        -> validate_keyword_zone
+        -> load_keywords_to_analytics_db
 ```

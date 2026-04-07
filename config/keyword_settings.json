@@ -1,0 +1,31 @@
+{
+  "top_keywords_per_article": 10,
+  "top_keywords_per_day_source": 25,
+  "min_token_length": 2,
+  "max_ngram_size": 3,
+  "title_weight": 2.0,
+  "summary_weight": 1.0,
+  "min_keyword_score": 1.0,
+  "blocked_terms": [
+    "anh",
+    "ảnh",
+    "bai",
+    "bài",
+    "bao",
+    "báo",
+    "clip",
+    "doc",
+    "đọc",
+    "hinh",
+    "hình",
+    "link",
+    "moi",
+    "mới",
+    "ngay",
+    "nhat",
+    "nhất",
+    "tin",
+    "video",
+    "xem"
+  ]
+}

@@ -30,8 +30,8 @@ def resolve_batch_path(latest_parquet: str) -> str:
 
 
 def main() -> None:
-    logger = configure_logging("validate_curated")
     args = parse_args()
+    logger = configure_logging("validate_curated") if not args.json else None
     from hdfs import InsecureClient
 
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)

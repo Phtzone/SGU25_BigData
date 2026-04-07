@@ -4,7 +4,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, TYPE_CHECKING
 
 from common.data_quality import summarize_article_quality
@@ -53,6 +53,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dead-letter-topic",
         default=os.getenv("KAFKA_DEAD_LETTER_TOPIC", "news_dead_letter"),
+    )
+    parser.add_argument(
+        "--write-output-path-file",
+        default="",
+        help="Optional local file used to persist the exact raw HDFS output path for downstream tasks.",
     )
     return parser.parse_args()
 
@@ -227,6 +232,15 @@ def build_output_path(base_path: str, collected_at: datetime) -> str:
         collected_at.strftime("%d"),
     )
     return str(output_dir / f"news_{collected_at.strftime('%H%M%S%f')}.jsonl")
+
+
+def write_output_path_file(path_file: str, output_path: str) -> None:
+    if not path_file.strip():
+        return
+
+    path = Path(path_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(output_path + "\n", encoding="utf-8")
 
 
 def commit_processed_offsets(consumer: Any) -> None:
@@ -424,6 +438,7 @@ def main() -> None:
         collected_at = datetime.now(timezone.utc)
         output_path = build_output_path(args.base_path, collected_at)
         write_jsonl_to_hdfs(args=args, client=client, output_path=output_path, rows=rows)
+        write_output_path_file(args.write_output_path_file, output_path)
         valid_quality = summarize_article_quality(rows)
         commit_processed_offsets(consumer)
         log_event(

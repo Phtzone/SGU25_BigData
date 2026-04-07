@@ -21,21 +21,29 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_raw_files(client, path: str) -> list[tuple[str, dict]]:
+    status = client.status(path, strict=False)
+    if not status:
+        raise SystemExit(f"HDFS path does not exist: {path}")
+
+    if status["type"] == "FILE":
+        return [(path, status)]
+
+    files = list_hdfs_files(client, path)
+    if not files:
+        raise SystemExit(f"No HDFS files found under {path}")
+
+    return files
+
+
 def main() -> None:
-    logger = configure_logging("validate_raw")
     args = parse_args()
+    logger = configure_logging("validate_raw") if not args.json else None
     from hdfs import InsecureClient
 
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
-
-    if not client.status(args.path, strict=False):
-        raise SystemExit(f"HDFS path does not exist: {args.path}")
-
-    files = list_hdfs_files(client, args.path)
+    files = resolve_raw_files(client, args.path)
     file_count = len(files)
-    if file_count == 0:
-        raise SystemExit(f"No HDFS files found under {args.path}")
-
     latest_file = max(files, key=lambda item: item[1]["modificationTime"])[0]
     if args.json:
         print(

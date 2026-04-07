@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path, PurePosixPath
@@ -9,9 +10,20 @@ from pathlib import Path, PurePosixPath
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
+    resolve_explicit_or_latest_path,
     resolve_latest_hdfs_file,
 )
 from common.logging_utils import configure_logging, log_event
+
+COMMON_JAVA_HOME_CANDIDATES = (
+    "/usr/lib/jvm/default-java",
+    "/usr/lib/jvm/java-17-openjdk-amd64",
+    "/usr/lib/jvm/java-17-openjdk",
+    "/usr/lib/jvm/temurin-17-jdk-amd64",
+    "/usr/lib/jvm/temurin-17-jdk",
+    "/usr/lib/jvm/msopenjdk-17-amd64",
+    "/usr/lib/jvm/msopenjdk-17",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,6 +32,11 @@ def parse_args() -> argparse.Namespace:
         description="Transform raw HDFS news JSONL into processed Parquet using PySpark."
     )
     parser.add_argument("--input-path", default=os.getenv("HDFS_RAW_PATH", "/news/raw"))
+    parser.add_argument(
+        "--input-batch-path",
+        default="",
+        help="Optional exact raw HDFS file path. When provided, this batch is used instead of resolving the latest raw file.",
+    )
     parser.add_argument("--output-path", default=os.getenv("HDFS_PROCESSED_PATH", "/news/processed"))
     parser.add_argument("--hdfs-url", default=default_hdfs_url)
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
@@ -38,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         default="news-raw-to-processed",
         help="Spark application name.",
     )
+    parser.add_argument(
+        "--write-output-path-file",
+        default="",
+        help="Optional local file used to persist the exact processed HDFS batch path for downstream tasks.",
+    )
     return parser.parse_args()
 
 
@@ -51,9 +73,91 @@ def build_processed_output_path(input_path: str, output_base_path: str) -> str:
     return str(PurePosixPath(output_base_path, year, month, day, batch_name))
 
 
+def write_output_path_file(path_file: str, output_path: str) -> None:
+    if not path_file.strip():
+        return
+
+    path = Path(path_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(output_path + "\n", encoding="utf-8")
+
+
+def is_valid_java_home(java_home: str | Path) -> bool:
+    java_home_path = Path(java_home)
+    java_binary = java_home_path / "bin" / "java"
+    return java_binary.exists()
+
+
+def infer_java_home_from_path() -> str | None:
+    java_binary_path = shutil.which("java")
+    if not java_binary_path:
+        return None
+
+    inferred_java_home = Path(java_binary_path).resolve().parent.parent
+    if is_valid_java_home(inferred_java_home):
+        return str(inferred_java_home)
+    return None
+
+
+def infer_java_home_from_common_locations() -> str | None:
+    seen_paths: set[str] = set()
+
+    for candidate in COMMON_JAVA_HOME_CANDIDATES:
+        resolved_candidate = str(Path(candidate))
+        if resolved_candidate in seen_paths:
+            continue
+        seen_paths.add(resolved_candidate)
+        if is_valid_java_home(candidate):
+            return resolved_candidate
+
+    jvm_root = Path("/usr/lib/jvm")
+    if jvm_root.exists():
+        for candidate in sorted(jvm_root.glob("*17*")):
+            resolved_candidate = str(candidate)
+            if resolved_candidate in seen_paths:
+                continue
+            seen_paths.add(resolved_candidate)
+            if is_valid_java_home(candidate):
+                return resolved_candidate
+
+    return None
+
+
+def ensure_java_home() -> str:
+    configured_java_home = os.getenv("JAVA_HOME", "").strip()
+    if configured_java_home:
+        if is_valid_java_home(configured_java_home):
+            return str(Path(configured_java_home))
+
+    inferred_java_home = infer_java_home_from_path()
+    if inferred_java_home:
+        os.environ["JAVA_HOME"] = inferred_java_home
+        return inferred_java_home
+
+    inferred_java_home = infer_java_home_from_common_locations()
+    if inferred_java_home:
+        os.environ["JAVA_HOME"] = inferred_java_home
+        return inferred_java_home
+
+    if configured_java_home:
+        raise SystemExit(
+            f"JAVA_HOME is set but invalid: {configured_java_home}. "
+            "Expected to find a Java binary at $JAVA_HOME/bin/java, and no usable 'java' executable "
+            "was found in PATH or common WSL/Linux JVM locations. Update JAVA_HOME or install OpenJDK 17."
+        )
+
+    raise SystemExit(
+        "Java 17 is required for local PySpark jobs, but JAVA_HOME is not configured and no usable "
+        "'java' executable was found in PATH or common WSL/Linux JVM locations. Install OpenJDK 17 and "
+        "export JAVA_HOME before running Spark jobs. Example on Ubuntu/WSL: sudo apt-get install -y "
+        "openjdk-17-jre-headless && export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64"
+    )
+
+
 def create_spark_session(app_name: str):
     from pyspark.sql import SparkSession
 
+    ensure_java_home()
     spark_local_dir = Path(os.getenv("SPARK_LOCAL_DIR", str(Path(tempfile.gettempdir()) / "spark-local")))
     spark_warehouse_dir = Path(
         os.getenv("SPARK_WAREHOUSE_DIR", str(Path(tempfile.gettempdir()) / "spark-warehouse"))
@@ -185,7 +289,12 @@ def main() -> None:
 
     os.environ["HDFS_DEFAULT_FS"] = args.hdfs_default_fs
     client = InsecureClient(args.hdfs_url, user=args.hdfs_user)
-    source_path = resolve_latest_hdfs_file(client, args.input_path)
+    source_path = resolve_explicit_or_latest_path(
+        client,
+        explicit_path=args.input_batch_path,
+        fallback_path=args.input_path,
+        latest_resolver=resolve_latest_hdfs_file,
+    )
     target_path = build_processed_output_path(source_path, args.output_path)
     source_uri = build_hdfs_uri(source_path, args.hdfs_default_fs)
     target_uri = build_hdfs_uri(target_path, args.hdfs_default_fs)
@@ -195,6 +304,7 @@ def main() -> None:
         output_uri=target_uri,
         app_name=args.app_name,
     )
+    write_output_path_file(args.write_output_path_file, target_path)
 
     log_event(
         logger,
