@@ -8334,3 +8334,32 @@ File Path                                 PID  Runtime      # DAGs    # Errors  
 /opt/airflow/dags/news_pipeline_dag.py    240  0.01s             1           0  0.18s           2026-04-07T14:11:12                      12
 ================================================================================
 [2026-04-07T14:12:05.081+0000] {manager.py:465} INFO - Exiting gracefully upon receiving signal 15
+[2026-04-07T14:12:31.171+0000] {manager.py:483} INFO - Processing files using up to 2 processes at a time 
+[2026-04-07T14:12:31.172+0000] {manager.py:484} INFO - Process each file at most once every 30 seconds
+[2026-04-07T14:12:31.173+0000] {manager.py:485} INFO - Checking for new files in /opt/airflow/dags every 300 seconds
+[2026-04-07T14:12:31.174+0000] {manager.py:821} INFO - Searching for files in /opt/airflow/dags
+[2026-04-07T14:12:31.210+0000] {manager.py:824} INFO - There are 1 files in /opt/airflow/dags
+[2026-04-07T14:12:31.301+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run      Last # of DB Queries
+--------------------------------------  -----  ---------  --------  ----------  --------------  ----------  ----------------------
+/opt/airflow/dags/news_pipeline_dag.py    175  0.03s             0           0                                                   0
+================================================================================
+[2026-04-07T14:13:01.751+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+--------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/news_pipeline_dag.py    180  0.01s             1           0  0.32s           2026-04-07T14:12:31                      12
+================================================================================
+[2026-04-07T14:13:32.424+0000] {manager.py:997} INFO - 
+================================================================================
+DAG File Processing Stats
+
+File Path                                 PID  Runtime      # DAGs    # Errors  Last Runtime    Last Run               Last # of DB Queries
+--------------------------------------  -----  ---------  --------  ----------  --------------  -------------------  ----------------------
+/opt/airflow/dags/news_pipeline_dag.py    185  0.00s             1           0  0.32s           2026-04-07T14:13:02                      12
+================================================================================
