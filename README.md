@@ -1,5 +1,16 @@
 # Real-Time News Ingestion Pipeline
 
+## Thành viên nhóm: 
+- 3123580051 - Phạm Hoàng Tiến
+- 3123580046 - Thạch Ngọc Thảo
+- 3123580058 - Nguyễn Thái Tú
+
+
+---- Bài tập nhóm môn Big Data ----
+
+Giảng viên hướng dẫn: TS. Vũ Ngọc Thanh Sang
+
+--------------------------------------
 This repository is organized around the Big Data MVP:
 
 `RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords`
