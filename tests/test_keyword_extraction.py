@@ -4,11 +4,13 @@ from pathlib import Path
 
 from Spark_jobs.extract_news_keywords import (
     DEFAULT_KEYWORD_SETTINGS,
+    build_keyword_config_hash,
     build_keyword_output_path,
     filter_tokens,
     generate_ngrams,
     is_valid_ngram,
     load_keyword_settings,
+    load_source_keyword_blocklist,
     normalize_keyword_text,
     score_keywords_for_article,
     split_candidate_token_segments,
@@ -64,18 +66,25 @@ class KeywordExtractionTests(unittest.TestCase):
     def test_score_keywords_for_article_prefers_repeated_title_terms(self) -> None:
         settings = dict(DEFAULT_KEYWORD_SETTINGS)
         settings["top_keywords_per_article"] = 10
+        settings["min_keyword_score"] = 0.5
+        settings["summary_only_penalty"] = 0.0
 
         ranked = score_keywords_for_article(
+            source="VNExpress",
             title="AI AI cho SEO",
             summary="AI cho doanh nghiep va seo",
             settings=settings,
             stopwords={"cho", "va"},
+            source_blocklist={},
+            keyword_config_hash="cfg12345",
         )
 
         self.assertTrue(ranked)
         self.assertEqual(ranked[0]["keyword"], "ai")
         self.assertEqual(ranked[0]["article_score"], 5.0)
         self.assertEqual(ranked[0]["rank_in_article"], 1)
+        self.assertEqual(ranked[0]["keyword_score_version"], "v2")
+        self.assertEqual(ranked[0]["keyword_config_hash"], "cfg12345")
         self.assertIn("doanh nghiep", {item["keyword"] for item in ranked})
         self.assertNotIn("ai seo", {item["keyword"] for item in ranked})
 
@@ -84,10 +93,13 @@ class KeywordExtractionTests(unittest.TestCase):
         settings["top_keywords_per_article"] = 10
 
         ranked = score_keywords_for_article(
+            source="VTV",
             title="Xem video ngay về AI",
             summary="Clip AI cho doanh nghiệp",
             settings=settings,
             stopwords={"cho", "về"},
+            source_blocklist={},
+            keyword_config_hash="cfg12345",
         )
 
         keywords = {item["keyword"] for item in ranked}
@@ -95,6 +107,41 @@ class KeywordExtractionTests(unittest.TestCase):
         self.assertNotIn("xem", keywords)
         self.assertNotIn("video", keywords)
         self.assertIn("ai", keywords)
+
+    def test_score_keywords_for_article_applies_summary_only_penalty(self) -> None:
+        settings = dict(DEFAULT_KEYWORD_SETTINGS)
+        settings["min_keyword_score"] = 0.5
+        settings["top_keywords_per_article"] = 20
+
+        ranked = score_keywords_for_article(
+            source="VNExpress",
+            title="Kinh tế hôm nay",
+            summary="AI doanh nghiệp tăng tốc",
+            settings=settings,
+            stopwords={"hôm", "nay"},
+            source_blocklist={},
+            keyword_config_hash="cfg12345",
+        )
+
+        ai_row = next(item for item in ranked if item["keyword"] == "ai")
+        self.assertIn("summary_only", ai_row["quality_flags"])
+        self.assertGreater(ai_row["quality_penalty"], 0.0)
+
+    def test_score_keywords_for_article_filters_source_blocked_phrase(self) -> None:
+        settings = dict(DEFAULT_KEYWORD_SETTINGS)
+        settings["blocked_phrases"] = []
+
+        ranked = score_keywords_for_article(
+            source="VNExpress",
+            title="Bình luận AI doanh nghiệp",
+            summary="Bình luận AI tiếp tục nóng",
+            settings=settings,
+            stopwords=set(),
+            source_blocklist={"vnexpress": {"bình luận"}},
+            keyword_config_hash="cfg12345",
+        )
+
+        self.assertNotIn("bình luận", {item["keyword"] for item in ranked})
 
     def test_load_keyword_settings_merges_with_defaults(self) -> None:
         config_dir = Path(".tmp")
@@ -116,6 +163,37 @@ class KeywordExtractionTests(unittest.TestCase):
             settings["top_keywords_per_day_source"],
             DEFAULT_KEYWORD_SETTINGS["top_keywords_per_day_source"],
         )
+
+    def test_load_source_keyword_blocklist_normalizes_terms(self) -> None:
+        config_dir = Path(".tmp")
+        config_dir.mkdir(parents=True, exist_ok=True)
+        blocklist_path = config_dir / "test_source_keyword_blocklist.json"
+        try:
+            blocklist_path.write_text(
+                json.dumps({"VNExpress": ["Bình luận", "Xem thêm"]}),
+                encoding="utf-8",
+            )
+
+            blocklist = load_source_keyword_blocklist(str(blocklist_path))
+        finally:
+            blocklist_path.unlink(missing_ok=True)
+
+        self.assertEqual(blocklist["vnexpress"], {"bình luận", "xem thêm"})
+
+    def test_build_keyword_config_hash_is_stable_for_same_inputs(self) -> None:
+        settings = dict(DEFAULT_KEYWORD_SETTINGS)
+        hash_1 = build_keyword_config_hash(
+            settings=settings,
+            stopwords={"va", "cho"},
+            source_blocklist={"default": {"xem thêm"}},
+        )
+        hash_2 = build_keyword_config_hash(
+            settings=settings,
+            stopwords={"cho", "va"},
+            source_blocklist={"default": {"xem thêm"}},
+        )
+
+        self.assertEqual(hash_1, hash_2)
 
 
 if __name__ == "__main__":

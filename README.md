@@ -211,6 +211,17 @@ Extract keywords from the latest curated batch:
 python -m Spark_jobs.extract_news_keywords --input-path /news/curated --output-path /news/keywords
 ```
 
+The keyword extractor now uses:
+
+- `config/keyword_settings.json`
+- `config/stopwords_vi.txt`
+- `config/source_keyword_blocklist.json`
+
+Each keyword batch also writes `_keyword_metadata.json` with:
+
+- `keyword_score_version`
+- `keyword_config_hash`
+
 Validate keyword output:
 
 ```bash
@@ -241,7 +252,7 @@ By default this script upserts into:
 - `mart_article_keywords`
 - `mart_keyword_daily_source`
 
-The keyword loader is idempotent per keyword batch path and tracks loaded batches in `analytics_keyword_load_history`.
+The keyword loader now tracks the latest `keyword_config_hash` per keyword batch path in `analytics_keyword_load_history`. If you rerun the same batch with a different config hash, the loader replaces that batch in PostgreSQL instead of silently skipping it.
 The loader also refreshes dashboard-ready PostgreSQL views for Streamlit:
 
 - `vw_streamlit_article_keywords_latest`
@@ -352,12 +363,23 @@ If you already have loaded keyword marts, open `http://localhost:8501` and use t
 - `Overall Trends`
 - `Source Trends`
 - `Article Keywords`
+- `Keyword Detail`
 
 The dashboard currently includes:
 
 - daily keyword momentum charts across the selected date range
 - a breakout keyword table comparing the latest day with prior history
 - source-specific drill-down from source trends to supporting article rows
+- cross-source comparison for a selected keyword in the `Keyword Detail` tab
+- exact keyword drill-down to supporting article rows from the same dashboard
+- CSV export buttons for overall trends, breakout tables, source trends, detail views, and supporting articles
+- keyword model/version visibility from PostgreSQL view metadata
+
+You can also export a manual keyword review sample for Phase 3A tuning:
+
+```bash
+python -m scripts.export_keyword_review_sample --limit 100
+```
 
 Run the full MVP + keyword smoke test:
 

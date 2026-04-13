@@ -7,6 +7,7 @@ from common.hdfs_utils import list_hdfs_files
 from common.logging_utils import configure_logging, log_event
 
 KEYWORD_DATASET_NAMES = ("article_keywords", "keyword_daily_source")
+KEYWORD_METADATA_FILENAME = "_keyword_metadata.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,8 +81,15 @@ def main() -> None:
         raise SystemExit("Keyword batch is missing keyword_daily_source Parquet output.")
 
     success_markers = [item for item in files if PurePosixPath(item[0]).name == "_SUCCESS"]
+    metadata_files = [item for item in files if PurePosixPath(item[0]).name == KEYWORD_METADATA_FILENAME]
     latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
     latest_batch = resolve_keyword_batch_from_parquet(latest_parquet)
+    if not metadata_files:
+        raise SystemExit("Keyword batch is missing _keyword_metadata.json metadata output.")
+
+    metadata_path = max(metadata_files, key=lambda item: item[1]["modificationTime"])[0]
+    with client.read(metadata_path, encoding="utf-8") as metadata_file:
+        metadata_payload = json.load(metadata_file)
 
     payload = {
         "path": args.path,
@@ -90,6 +98,9 @@ def main() -> None:
         "keyword_daily_source_parquet_count": len(keyword_daily_source_files),
         "success_marker_count": len(success_markers),
         "latest_parquet_file": latest_parquet,
+        "metadata_path": metadata_path,
+        "keyword_score_version": metadata_payload.get("keyword_score_version", ""),
+        "keyword_config_hash": metadata_payload.get("keyword_config_hash", ""),
         "datasets": list(KEYWORD_DATASET_NAMES),
     }
 
@@ -107,6 +118,9 @@ def main() -> None:
         keyword_daily_source_parquet_count=len(keyword_daily_source_files),
         success_marker_count=len(success_markers),
         latest_parquet_file=latest_parquet,
+        metadata_path=metadata_path,
+        keyword_score_version=metadata_payload.get("keyword_score_version", ""),
+        keyword_config_hash=metadata_payload.get("keyword_config_hash", ""),
         status="success",
     )
 

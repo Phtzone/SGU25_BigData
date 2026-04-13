@@ -4,7 +4,9 @@ from datetime import date
 from dashboard.query_builders import (
     build_article_keywords_query,
     build_breakout_keywords_query,
+    build_keyword_detail_query,
     build_keyword_metrics_query,
+    build_keyword_source_compare_query,
     build_keyword_timeseries_query,
     build_overall_keyword_trends_query,
     build_source_keyword_trends_query,
@@ -41,6 +43,7 @@ class DashboardQueryBuilderTests(unittest.TestCase):
 
         self.assertIn("FROM vw_streamlit_keyword_daily_source_latest", query)
         self.assertIn("source IN (%s)", query)
+        self.assertIn("SUM(final_keyword_score) AS final_keyword_score", query)
         self.assertIn("ngram_size IN (%s, %s)", query)
         self.assertIn("keyword_normalized ILIKE %s", query)
         self.assertEqual(
@@ -99,6 +102,7 @@ class DashboardQueryBuilderTests(unittest.TestCase):
         )
 
         self.assertIn("COUNT(DISTINCT keyword_normalized)", query)
+        self.assertIn("STRING_AGG(DISTINCT keyword_score_version", query)
         self.assertIn("FROM vw_streamlit_keyword_daily_source_latest", query)
         self.assertEqual(params, ["Tuoi Tre", 2, 3, "%keyword%"])
 
@@ -114,6 +118,7 @@ class DashboardQueryBuilderTests(unittest.TestCase):
 
         self.assertIn("WITH filtered_source_keywords AS", query)
         self.assertIn("LIMIT %s", query)
+        self.assertIn("SUM(final_keyword_score) AS final_keyword_score", query)
         self.assertIn("source IN (%s)", query)
         self.assertEqual(
             params,
@@ -132,11 +137,115 @@ class DashboardQueryBuilderTests(unittest.TestCase):
 
         self.assertIn("latest_date AS", query)
         self.assertIn("history AS", query)
+        self.assertIn("AVG(final_keyword_score)", query)
         self.assertIn("breakout_score", query)
         self.assertIn("FROM vw_streamlit_keyword_daily_source_latest", query)
         self.assertEqual(
             params,
             [date(2026, 4, 1), date(2026, 4, 7), "Tuoi Tre", 2, 3, "%seo%", 20],
+        )
+
+    def test_source_query_selects_quality_and_version_columns(self) -> None:
+        query, params = build_source_keyword_trends_query(
+            date_from=None,
+            date_to=None,
+            sources=["VNExpress"],
+            ngram_sizes=[2],
+            keyword_search="ai",
+            limit=20,
+        )
+
+        self.assertIn("quality_flags", query)
+        self.assertIn("keyword_score_version", query)
+        self.assertIn("final_keyword_score", query)
+        self.assertEqual(params, ["VNExpress", 2, "%ai%", 20])
+
+    def test_article_query_selects_quality_metadata(self) -> None:
+        query, _ = build_article_keywords_query(
+            date_from=None,
+            date_to=None,
+            sources=[],
+            ngram_sizes=[1],
+            keyword_search="",
+            title_search="",
+            limit=10,
+        )
+
+        self.assertIn("base_score", query)
+        self.assertIn("quality_penalty", query)
+        self.assertIn("keyword_config_hash", query)
+
+    def test_article_query_supports_exact_keyword_filter(self) -> None:
+        query, params = build_article_keywords_query(
+            date_from=date(2026, 4, 2),
+            date_to=date(2026, 4, 8),
+            sources=["VNExpress"],
+            ngram_sizes=[2],
+            keyword_search="",
+            title_search="",
+            limit=15,
+            keyword_normalized_exact="ai agent",
+        )
+
+        self.assertIn("keyword_normalized = %s", query)
+        self.assertEqual(
+            params,
+            [date(2026, 4, 2), date(2026, 4, 8), "VNExpress", 2, "ai agent", 15],
+        )
+
+    def test_keyword_detail_query_filters_exact_keyword(self) -> None:
+        query, params = build_keyword_detail_query(
+            date_from=date(2026, 4, 2),
+            date_to=date(2026, 4, 7),
+            sources=["VNExpress", "VTV"],
+            ngram_sizes=[2, 3],
+            keyword_normalized="ai agent",
+            limit=40,
+        )
+
+        self.assertIn("FROM vw_streamlit_keyword_daily_source_latest", query)
+        self.assertIn("keyword_normalized = %s", query)
+        self.assertIn("final_keyword_score", query)
+        self.assertIn("ORDER BY event_date DESC, final_keyword_score DESC", query)
+        self.assertEqual(
+            params,
+            [
+                date(2026, 4, 2),
+                date(2026, 4, 7),
+                "VNExpress",
+                "VTV",
+                2,
+                3,
+                "ai agent",
+                40,
+            ],
+        )
+
+    def test_keyword_source_compare_query_groups_source_history(self) -> None:
+        query, params = build_keyword_source_compare_query(
+            date_from=date(2026, 4, 1),
+            date_to=date(2026, 4, 7),
+            sources=["VNExpress", "VTV"],
+            ngram_sizes=[2],
+            keyword_normalized="chinh phu",
+            limit=60,
+        )
+
+        self.assertIn("WITH filtered_source_keywords AS", query)
+        self.assertIn("GROUP BY event_date, source, keyword, keyword_normalized", query)
+        self.assertIn("keyword_normalized = %s", query)
+        self.assertIn("SUM(final_keyword_score) AS final_keyword_score", query)
+        self.assertEqual(
+            params,
+            [
+                date(2026, 4, 1),
+                date(2026, 4, 7),
+                "VNExpress",
+                "VTV",
+                2,
+                "chinh phu",
+                60,
+            ],
         )
 
 

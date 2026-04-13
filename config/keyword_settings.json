@@ -1,4 +1,5 @@
 {
+  "keyword_score_version": "v2",
   "top_keywords_per_article": 10,
   "top_keywords_per_day_source": 25,
   "min_token_length": 2,
@@ -6,6 +7,12 @@
   "title_weight": 2.0,
   "summary_weight": 1.0,
   "min_keyword_score": 1.0,
+  "summary_only_penalty": 0.35,
+  "weak_term_penalty": 0.25,
+  "source_spread_weight": 0.2,
+  "recency_weight": 0.15,
+  "recency_window_days": 7,
+  "breakout_weight": 0.15,
   "blocked_terms": [
     "anh",
     "ảnh",
@@ -27,5 +34,17 @@
     "tin",
     "video",
     "xem"
+  ],
+  "blocked_phrases": [
+    "chi tiết",
+    "mới nhất",
+    "theo dõi",
+    "xem thêm"
+  ],
+  "weak_terms": [
+    "góc",
+    "ngày",
+    "tin",
+    "trước"
   ]
 }

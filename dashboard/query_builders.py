@@ -57,6 +57,20 @@ def append_search_filter(
     params.append(f"%{normalized_term}%")
 
 
+def append_exact_filter(
+    filters: list[str],
+    params: list[Any],
+    *,
+    column_name: str,
+    value: Any,
+) -> None:
+    if value in (None, ""):
+        return
+
+    filters.append(f"{column_name} = %s")
+    params.append(value)
+
+
 def compose_where_clause(filters: list[str]) -> str:
     if not filters:
         return ""
@@ -117,7 +131,9 @@ def build_keyword_metrics_query(
             COUNT(DISTINCT keyword_normalized) AS distinct_keywords,
             COUNT(DISTINCT source) AS source_count,
             COALESCE(SUM(article_count), 0) AS supporting_articles,
-            MAX(event_date) AS latest_event_date
+            MAX(event_date) AS latest_event_date,
+            COALESCE(STRING_AGG(DISTINCT keyword_score_version, ', '), '') AS score_versions,
+            COUNT(DISTINCT keyword_config_hash) AS config_versions
         FROM vw_streamlit_keyword_daily_source_latest
         {compose_where_clause(filters)}
     """
@@ -160,7 +176,10 @@ def build_overall_keyword_trends_query(
                 ngram_size,
                 article_count,
                 weighted_score,
-                avg_article_score
+                avg_article_score,
+                final_keyword_score,
+                keyword_score_version,
+                keyword_config_hash
             FROM vw_streamlit_keyword_daily_source_latest
             {compose_where_clause(filters)}
         ),
@@ -173,7 +192,10 @@ def build_overall_keyword_trends_query(
                 COUNT(DISTINCT source) AS source_count,
                 SUM(article_count) AS article_count,
                 SUM(weighted_score) AS weighted_score,
-                AVG(avg_article_score) AS avg_article_score
+                AVG(avg_article_score) AS avg_article_score,
+                SUM(final_keyword_score) AS final_keyword_score,
+                MAX(keyword_score_version) AS keyword_score_version,
+                MAX(keyword_config_hash) AS keyword_config_hash
             FROM filtered_source_keywords
             GROUP BY event_date, keyword, keyword_normalized
         )
@@ -186,10 +208,13 @@ def build_overall_keyword_trends_query(
             article_count,
             weighted_score,
             avg_article_score,
+            final_keyword_score,
+            keyword_score_version,
+            keyword_config_hash,
             ROW_NUMBER() OVER (
                 PARTITION BY event_date
                 ORDER BY
-                    weighted_score DESC,
+                    final_keyword_score DESC,
                     article_count DESC,
                     ngram_size DESC,
                     keyword_normalized ASC
@@ -235,7 +260,8 @@ def build_keyword_timeseries_query(
                 keyword,
                 keyword_normalized,
                 article_count,
-                weighted_score
+                weighted_score,
+                final_keyword_score
             FROM vw_streamlit_keyword_daily_source_latest
             {compose_where_clause(filters)}
         ),
@@ -245,7 +271,8 @@ def build_keyword_timeseries_query(
                 keyword,
                 keyword_normalized,
                 SUM(article_count) AS article_count,
-                SUM(weighted_score) AS weighted_score
+                SUM(weighted_score) AS weighted_score,
+                SUM(final_keyword_score) AS final_keyword_score
             FROM filtered_source_keywords
             GROUP BY event_date, keyword, keyword_normalized
         ),
@@ -254,7 +281,7 @@ def build_keyword_timeseries_query(
             FROM aggregated_keywords
             GROUP BY keyword_normalized
             ORDER BY
-                SUM(weighted_score) DESC,
+                SUM(final_keyword_score) DESC,
                 SUM(article_count) DESC,
                 keyword_normalized ASC
             LIMIT %s
@@ -264,11 +291,12 @@ def build_keyword_timeseries_query(
             aggregated_keywords.keyword,
             aggregated_keywords.keyword_normalized,
             aggregated_keywords.article_count,
-            aggregated_keywords.weighted_score
+            aggregated_keywords.weighted_score,
+            aggregated_keywords.final_keyword_score
         FROM aggregated_keywords
         INNER JOIN top_keywords
             ON top_keywords.keyword_normalized = aggregated_keywords.keyword_normalized
-        ORDER BY aggregated_keywords.event_date ASC, aggregated_keywords.weighted_score DESC
+        ORDER BY aggregated_keywords.event_date ASC, aggregated_keywords.final_keyword_score DESC
     """
     params.append(clamp_limit(limit_keywords, max_limit=20))
     return query, params
@@ -309,7 +337,8 @@ def build_breakout_keywords_query(
                 keyword_normalized,
                 ngram_size,
                 article_count,
-                weighted_score
+                weighted_score,
+                final_keyword_score
             FROM vw_streamlit_keyword_daily_source_latest
             {compose_where_clause(filters)}
         ),
@@ -321,7 +350,8 @@ def build_breakout_keywords_query(
                 MAX(ngram_size) AS ngram_size,
                 COUNT(DISTINCT source) AS source_count,
                 SUM(article_count) AS article_count,
-                SUM(weighted_score) AS weighted_score
+                SUM(weighted_score) AS weighted_score,
+                SUM(final_keyword_score) AS final_keyword_score
             FROM filtered_source_keywords
             GROUP BY event_date, keyword, keyword_normalized
         ),
@@ -334,10 +364,11 @@ def build_breakout_keywords_query(
                 source_count,
                 article_count,
                 weighted_score,
+                final_keyword_score,
                 ROW_NUMBER() OVER (
                     PARTITION BY event_date
                     ORDER BY
-                        weighted_score DESC,
+                        final_keyword_score DESC,
                         article_count DESC,
                         ngram_size DESC,
                         keyword_normalized ASC
@@ -351,7 +382,7 @@ def build_breakout_keywords_query(
         history AS (
             SELECT
                 keyword_normalized,
-                AVG(weighted_score) AS previous_avg_weighted_score,
+                AVG(final_keyword_score) AS previous_avg_final_keyword_score,
                 AVG(article_count) AS previous_avg_article_count,
                 COUNT(*) AS history_days
             FROM ranked_keywords
@@ -366,11 +397,12 @@ def build_breakout_keywords_query(
             ranked_keywords.source_count,
             ranked_keywords.article_count,
             ranked_keywords.weighted_score,
+            ranked_keywords.final_keyword_score,
             ranked_keywords.rank_in_day,
-            COALESCE(history.previous_avg_weighted_score, 0) AS previous_avg_weighted_score,
+            COALESCE(history.previous_avg_final_keyword_score, 0) AS previous_avg_final_keyword_score,
             COALESCE(history.previous_avg_article_count, 0) AS previous_avg_article_count,
             COALESCE(history.history_days, 0) AS history_days,
-            ranked_keywords.weighted_score - COALESCE(history.previous_avg_weighted_score, 0) AS breakout_score,
+            ranked_keywords.final_keyword_score - COALESCE(history.previous_avg_final_keyword_score, 0) AS breakout_score,
             ranked_keywords.article_count - COALESCE(history.previous_avg_article_count, 0) AS article_count_delta
         FROM ranked_keywords
         LEFT JOIN history
@@ -378,7 +410,7 @@ def build_breakout_keywords_query(
         WHERE ranked_keywords.event_date = (SELECT latest_event_date FROM latest_date)
         ORDER BY
             breakout_score DESC,
-            ranked_keywords.weighted_score DESC,
+            ranked_keywords.final_keyword_score DESC,
             ranked_keywords.article_count DESC,
             ranked_keywords.keyword_normalized ASC
         LIMIT %s
@@ -421,12 +453,143 @@ def build_source_keyword_trends_query(
             keyword_normalized,
             ngram_size,
             article_count,
+            base_score,
+            quality_penalty,
             weighted_score,
             avg_article_score,
+            quality_flags,
+            keyword_score_version,
+            keyword_config_hash,
+            source_spread_score,
+            recency_score,
+            breakout_score,
+            final_keyword_score,
             rank_in_group
         FROM vw_streamlit_keyword_daily_source_latest
         {compose_where_clause(filters)}
-        ORDER BY event_date DESC, source ASC, rank_in_group ASC
+        ORDER BY event_date DESC, source ASC, final_keyword_score DESC, rank_in_group ASC
+        LIMIT %s
+    """
+    params.append(clamp_limit(limit))
+    return query, params
+
+
+def build_keyword_detail_query(
+    *,
+    date_from: date | None,
+    date_to: date | None,
+    sources: Iterable[str],
+    ngram_sizes: Iterable[int],
+    keyword_normalized: str,
+    limit: int,
+) -> tuple[str, list[Any]]:
+    filters: list[str] = []
+    params: list[Any] = []
+    append_date_filters(
+        filters,
+        params,
+        column_name="event_date",
+        date_from=date_from,
+        date_to=date_to,
+    )
+    append_in_filter(filters, params, column_name="source", values=sources)
+    append_in_filter(filters, params, column_name="ngram_size", values=ngram_sizes)
+    append_exact_filter(
+        filters,
+        params,
+        column_name="keyword_normalized",
+        value=keyword_normalized,
+    )
+    query = f"""
+        SELECT
+            event_date,
+            source,
+            keyword,
+            keyword_normalized,
+            ngram_size,
+            article_count,
+            base_score,
+            quality_penalty,
+            weighted_score,
+            avg_article_score,
+            quality_flags,
+            keyword_score_version,
+            keyword_config_hash,
+            source_spread_score,
+            recency_score,
+            breakout_score,
+            final_keyword_score,
+            rank_in_group
+        FROM vw_streamlit_keyword_daily_source_latest
+        {compose_where_clause(filters)}
+        ORDER BY event_date DESC, final_keyword_score DESC, source ASC, rank_in_group ASC
+        LIMIT %s
+    """
+    params.append(clamp_limit(limit))
+    return query, params
+
+
+def build_keyword_source_compare_query(
+    *,
+    date_from: date | None,
+    date_to: date | None,
+    sources: Iterable[str],
+    ngram_sizes: Iterable[int],
+    keyword_normalized: str,
+    limit: int,
+) -> tuple[str, list[Any]]:
+    filters: list[str] = []
+    params: list[Any] = []
+    append_date_filters(
+        filters,
+        params,
+        column_name="event_date",
+        date_from=date_from,
+        date_to=date_to,
+    )
+    append_in_filter(filters, params, column_name="source", values=sources)
+    append_in_filter(filters, params, column_name="ngram_size", values=ngram_sizes)
+    append_exact_filter(
+        filters,
+        params,
+        column_name="keyword_normalized",
+        value=keyword_normalized,
+    )
+    query = f"""
+        WITH filtered_source_keywords AS (
+            SELECT
+                event_date,
+                source,
+                keyword,
+                keyword_normalized,
+                article_count,
+                weighted_score,
+                final_keyword_score
+            FROM vw_streamlit_keyword_daily_source_latest
+            {compose_where_clause(filters)}
+        ),
+        aggregated_source_history AS (
+            SELECT
+                event_date,
+                source,
+                keyword,
+                keyword_normalized,
+                SUM(article_count) AS article_count,
+                SUM(weighted_score) AS weighted_score,
+                SUM(final_keyword_score) AS final_keyword_score
+            FROM filtered_source_keywords
+            GROUP BY event_date, source, keyword, keyword_normalized
+        )
+        SELECT
+            event_date,
+            source,
+            keyword,
+            keyword_normalized,
+            article_count,
+            weighted_score,
+            final_keyword_score
+        FROM aggregated_source_history
+        ORDER BY event_date DESC, source ASC, final_keyword_score DESC
         LIMIT %s
     """
     params.append(clamp_limit(limit))
@@ -442,6 +605,7 @@ def build_article_keywords_query(
     keyword_search: str,
     title_search: str,
     limit: int,
+    keyword_normalized_exact: str | None = None,
 ) -> tuple[str, list[Any]]:
     filters: list[str] = []
     params: list[Any] = []
@@ -454,6 +618,12 @@ def build_article_keywords_query(
     )
     append_in_filter(filters, params, column_name="source", values=sources)
     append_in_filter(filters, params, column_name="ngram_size", values=ngram_sizes)
+    append_exact_filter(
+        filters,
+        params,
+        column_name="keyword_normalized",
+        value=keyword_normalized_exact,
+    )
     append_search_filter(
         filters,
         params,
@@ -475,7 +645,12 @@ def build_article_keywords_query(
             keyword,
             keyword_normalized,
             ngram_size,
+            base_score,
+            quality_penalty,
             article_score,
+            quality_flags,
+            keyword_score_version,
+            keyword_config_hash,
             rank_in_article
         FROM vw_streamlit_article_keywords_latest
         {compose_where_clause(filters)}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from datetime import date
@@ -10,6 +11,8 @@ from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import build_hdfs_uri, derive_hdfs_default_fs, resolve_explicit_or_latest_path
 from common.logging_utils import configure_logging, log_event
 from scripts.validate_keyword_output import resolve_latest_keyword_batch
+
+KEYWORD_METADATA_FILENAME = "_keyword_metadata.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,6 +88,27 @@ def connect_to_postgres(args: argparse.Namespace) -> Any:
     )
 
 
+def read_keyword_batch_metadata(*, hdfs_client: Any, batch_path: str) -> dict[str, Any]:
+    metadata_path = f"{batch_path}/{KEYWORD_METADATA_FILENAME}"
+    if not hdfs_client.status(metadata_path, strict=False):
+        raise SystemExit(f"Keyword batch metadata file does not exist: {metadata_path}")
+
+    with hdfs_client.read(metadata_path, encoding="utf-8") as metadata_file:
+        payload = json.load(metadata_file)
+
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Keyword batch metadata file is invalid JSON object: {metadata_path}")
+
+    required_fields = ("batch_path", "keyword_score_version", "keyword_config_hash")
+    missing_fields = [field for field in required_fields if not str(payload.get(field, "")).strip()]
+    if missing_fields:
+        raise SystemExit(
+            f"Keyword batch metadata file is missing required fields: {', '.join(missing_fields)}"
+        )
+
+    return payload
+
+
 def ensure_keyword_tables(
     *,
     connection: Any,
@@ -100,6 +124,8 @@ def ensure_keyword_tables(
                 """
                 CREATE TABLE IF NOT EXISTS {history_table} (
                     batch_path TEXT PRIMARY KEY,
+                    keyword_score_version TEXT,
+                    keyword_config_hash TEXT,
                     article_keyword_row_count INTEGER NOT NULL,
                     keyword_daily_source_row_count INTEGER NOT NULL,
                     loaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -119,7 +145,12 @@ def ensure_keyword_tables(
                     keyword TEXT NOT NULL,
                     keyword_normalized TEXT NOT NULL,
                     ngram_size INTEGER NOT NULL,
+                    base_score DOUBLE PRECISION,
+                    quality_penalty DOUBLE PRECISION,
                     article_score DOUBLE PRECISION NOT NULL,
+                    quality_flags TEXT,
+                    keyword_score_version TEXT,
+                    keyword_config_hash TEXT,
                     rank_in_article INTEGER NOT NULL,
                     loaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     PRIMARY KEY (batch_path, link, keyword_normalized)
@@ -138,13 +169,102 @@ def ensure_keyword_tables(
                     keyword_normalized TEXT NOT NULL,
                     ngram_size INTEGER NOT NULL,
                     article_count INTEGER NOT NULL,
+                    base_score DOUBLE PRECISION,
+                    quality_penalty DOUBLE PRECISION,
                     weighted_score DOUBLE PRECISION NOT NULL,
                     avg_article_score DOUBLE PRECISION NOT NULL,
+                    quality_flags TEXT,
+                    keyword_score_version TEXT,
+                    keyword_config_hash TEXT,
+                    source_spread_score DOUBLE PRECISION,
+                    recency_score DOUBLE PRECISION,
+                    breakout_score DOUBLE PRECISION,
+                    final_keyword_score DOUBLE PRECISION,
                     rank_in_group INTEGER NOT NULL,
                     loaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     PRIMARY KEY (batch_path, event_date, source, keyword_normalized)
                 )
                 """
+            ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
+        )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {history_table} ADD COLUMN IF NOT EXISTS keyword_score_version TEXT").format(
+                history_table=sql.Identifier(history_table)
+            )
+        )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {history_table} ADD COLUMN IF NOT EXISTS keyword_config_hash TEXT").format(
+                history_table=sql.Identifier(history_table)
+            )
+        )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {article_keywords_table} ADD COLUMN IF NOT EXISTS base_score DOUBLE PRECISION").format(
+                article_keywords_table=sql.Identifier(article_keywords_table)
+            )
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {article_keywords_table} ADD COLUMN IF NOT EXISTS quality_penalty DOUBLE PRECISION"
+            ).format(article_keywords_table=sql.Identifier(article_keywords_table))
+        )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {article_keywords_table} ADD COLUMN IF NOT EXISTS quality_flags TEXT").format(
+                article_keywords_table=sql.Identifier(article_keywords_table)
+            )
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {article_keywords_table} ADD COLUMN IF NOT EXISTS keyword_score_version TEXT"
+            ).format(article_keywords_table=sql.Identifier(article_keywords_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {article_keywords_table} ADD COLUMN IF NOT EXISTS keyword_config_hash TEXT"
+            ).format(article_keywords_table=sql.Identifier(article_keywords_table))
+        )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS base_score DOUBLE PRECISION").format(
+                keyword_daily_source_table=sql.Identifier(keyword_daily_source_table)
+            )
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS quality_penalty DOUBLE PRECISION"
+            ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
+        )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS quality_flags TEXT").format(
+                keyword_daily_source_table=sql.Identifier(keyword_daily_source_table)
+            )
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS keyword_score_version TEXT"
+            ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS keyword_config_hash TEXT"
+            ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS source_spread_score DOUBLE PRECISION"
+            ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS recency_score DOUBLE PRECISION"
+            ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS breakout_score DOUBLE PRECISION"
+            ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
+        )
+        cursor.execute(
+            sql.SQL(
+                "ALTER TABLE {keyword_daily_source_table} ADD COLUMN IF NOT EXISTS final_keyword_score DOUBLE PRECISION"
             ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
         )
         cursor.execute(
@@ -209,7 +329,12 @@ def ensure_keyword_tables(
                         keyword,
                         keyword_normalized,
                         ngram_size,
+                        base_score,
+                        quality_penalty,
                         article_score,
+                        quality_flags,
+                        keyword_score_version,
+                        keyword_config_hash,
                         rank_in_article,
                         loaded_at,
                         ROW_NUMBER() OVER (
@@ -227,7 +352,12 @@ def ensure_keyword_tables(
                     keyword,
                     keyword_normalized,
                     ngram_size,
+                    base_score,
+                    quality_penalty,
                     article_score,
+                    quality_flags,
+                    keyword_score_version,
+                    keyword_config_hash,
                     rank_in_article,
                     loaded_at
                 FROM ranked_keywords
@@ -248,8 +378,17 @@ def ensure_keyword_tables(
                         keyword_normalized,
                         ngram_size,
                         article_count,
+                        base_score,
+                        quality_penalty,
                         weighted_score,
                         avg_article_score,
+                        quality_flags,
+                        keyword_score_version,
+                        keyword_config_hash,
+                        source_spread_score,
+                        recency_score,
+                        breakout_score,
+                        final_keyword_score,
                         rank_in_group,
                         loaded_at,
                         ROW_NUMBER() OVER (
@@ -266,8 +405,17 @@ def ensure_keyword_tables(
                     keyword_normalized,
                     ngram_size,
                     article_count,
+                    base_score,
+                    quality_penalty,
                     weighted_score,
                     avg_article_score,
+                    quality_flags,
+                    keyword_score_version,
+                    keyword_config_hash,
+                    source_spread_score,
+                    recency_score,
+                    breakout_score,
+                    final_keyword_score,
                     rank_in_group,
                     loaded_at
                 FROM ranked_keywords
@@ -287,7 +435,10 @@ def ensure_keyword_tables(
                     ngram_size,
                     article_count,
                     weighted_score,
-                    avg_article_score
+                    avg_article_score,
+                    final_keyword_score,
+                    keyword_score_version,
+                    keyword_config_hash
                 FROM vw_streamlit_keyword_daily_source_latest
             )
             SELECT
@@ -299,10 +450,13 @@ def ensure_keyword_tables(
                 SUM(article_count) AS article_count,
                 SUM(weighted_score) AS weighted_score,
                 AVG(avg_article_score) AS avg_article_score,
+                SUM(final_keyword_score) AS final_keyword_score,
+                MAX(keyword_score_version) AS keyword_score_version,
+                MAX(keyword_config_hash) AS keyword_config_hash,
                 ROW_NUMBER() OVER (
                     PARTITION BY event_date
                     ORDER BY
-                        SUM(weighted_score) DESC,
+                        SUM(final_keyword_score) DESC,
                         SUM(article_count) DESC,
                         MAX(ngram_size) DESC,
                         keyword_normalized ASC
@@ -314,17 +468,40 @@ def ensure_keyword_tables(
     connection.commit()
 
 
-def is_batch_loaded(*, connection: Any, history_table: str, batch_path: str) -> bool:
+def get_loaded_batch_metadata(*, connection: Any, history_table: str, batch_path: str) -> dict[str, Any] | None:
     from psycopg2 import sql
 
     with connection.cursor() as cursor:
         cursor.execute(
-            sql.SQL("SELECT 1 FROM {history_table} WHERE batch_path = %s LIMIT 1").format(
+            sql.SQL(
+                """
+                SELECT
+                    batch_path,
+                    keyword_score_version,
+                    keyword_config_hash,
+                    article_keyword_row_count,
+                    keyword_daily_source_row_count,
+                    loaded_at
+                FROM {history_table}
+                WHERE batch_path = %s
+                LIMIT 1
+                """
+            ).format(
                 history_table=sql.Identifier(history_table)
             ),
             (batch_path,),
         )
-        return cursor.fetchone() is not None
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "batch_path": row[0],
+            "keyword_score_version": row[1],
+            "keyword_config_hash": row[2],
+            "article_keyword_row_count": row[3],
+            "keyword_daily_source_row_count": row[4],
+            "loaded_at": row[5],
+        }
 
 
 def delete_existing_batch_rows(
@@ -385,7 +562,12 @@ def upsert_article_keyword_rows(
             keyword,
             keyword_normalized,
             ngram_size,
+            base_score,
+            quality_penalty,
             article_score,
+            quality_flags,
+            keyword_score_version,
+            keyword_config_hash,
             rank_in_article
         )
         VALUES %s
@@ -395,7 +577,12 @@ def upsert_article_keyword_rows(
             title = EXCLUDED.title,
             keyword = EXCLUDED.keyword,
             ngram_size = EXCLUDED.ngram_size,
+            base_score = EXCLUDED.base_score,
+            quality_penalty = EXCLUDED.quality_penalty,
             article_score = EXCLUDED.article_score,
+            quality_flags = EXCLUDED.quality_flags,
+            keyword_score_version = EXCLUDED.keyword_score_version,
+            keyword_config_hash = EXCLUDED.keyword_config_hash,
             rank_in_article = EXCLUDED.rank_in_article,
             loaded_at = NOW()
         """
@@ -413,7 +600,12 @@ def upsert_article_keyword_rows(
                     row["keyword"],
                     row["keyword_normalized"],
                     int(row["ngram_size"]),
+                    float(row.get("base_score") or 0.0),
+                    float(row.get("quality_penalty") or 0.0),
                     float(row["article_score"]),
+                    row.get("quality_flags") or "",
+                    row.get("keyword_score_version") or "",
+                    row.get("keyword_config_hash") or "",
                     int(row["rank_in_article"]),
                 )
                 for row in rows
@@ -444,8 +636,17 @@ def upsert_keyword_daily_source_rows(
             keyword_normalized,
             ngram_size,
             article_count,
+            base_score,
+            quality_penalty,
             weighted_score,
             avg_article_score,
+            quality_flags,
+            keyword_score_version,
+            keyword_config_hash,
+            source_spread_score,
+            recency_score,
+            breakout_score,
+            final_keyword_score,
             rank_in_group
         )
         VALUES %s
@@ -453,8 +654,17 @@ def upsert_keyword_daily_source_rows(
             keyword = EXCLUDED.keyword,
             ngram_size = EXCLUDED.ngram_size,
             article_count = EXCLUDED.article_count,
+            base_score = EXCLUDED.base_score,
+            quality_penalty = EXCLUDED.quality_penalty,
             weighted_score = EXCLUDED.weighted_score,
             avg_article_score = EXCLUDED.avg_article_score,
+            quality_flags = EXCLUDED.quality_flags,
+            keyword_score_version = EXCLUDED.keyword_score_version,
+            keyword_config_hash = EXCLUDED.keyword_config_hash,
+            source_spread_score = EXCLUDED.source_spread_score,
+            recency_score = EXCLUDED.recency_score,
+            breakout_score = EXCLUDED.breakout_score,
+            final_keyword_score = EXCLUDED.final_keyword_score,
             rank_in_group = EXCLUDED.rank_in_group,
             loaded_at = NOW()
         """
@@ -471,8 +681,17 @@ def upsert_keyword_daily_source_rows(
                     row["keyword_normalized"],
                     int(row["ngram_size"]),
                     int(row["article_count"]),
+                    float(row.get("base_score") or 0.0),
+                    float(row.get("quality_penalty") or 0.0),
                     float(row["weighted_score"]),
                     float(row["avg_article_score"]),
+                    row.get("quality_flags") or "",
+                    row.get("keyword_score_version") or "",
+                    row.get("keyword_config_hash") or "",
+                    float(row.get("source_spread_score") or 0.0),
+                    float(row.get("recency_score") or 0.0),
+                    float(row.get("breakout_score") or 0.0),
+                    float(row.get("final_keyword_score") or 0.0),
                     int(row["rank_in_group"]),
                 )
                 for row in rows
@@ -488,6 +707,8 @@ def mark_batch_loaded(
     connection: Any,
     history_table: str,
     batch_path: str,
+    keyword_score_version: str,
+    keyword_config_hash: str,
     article_keyword_row_count: int,
     keyword_daily_source_row_count: int,
 ) -> None:
@@ -499,18 +720,28 @@ def mark_batch_loaded(
                 """
                 INSERT INTO {history_table} (
                     batch_path,
+                    keyword_score_version,
+                    keyword_config_hash,
                     article_keyword_row_count,
                     keyword_daily_source_row_count,
                     loaded_at
                 )
-                VALUES (%s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (batch_path) DO UPDATE SET
+                    keyword_score_version = EXCLUDED.keyword_score_version,
+                    keyword_config_hash = EXCLUDED.keyword_config_hash,
                     article_keyword_row_count = EXCLUDED.article_keyword_row_count,
                     keyword_daily_source_row_count = EXCLUDED.keyword_daily_source_row_count,
                     loaded_at = NOW()
                 """
             ).format(history_table=sql.Identifier(history_table)),
-            (batch_path, article_keyword_row_count, keyword_daily_source_row_count),
+            (
+                batch_path,
+                keyword_score_version,
+                keyword_config_hash,
+                article_keyword_row_count,
+                keyword_daily_source_row_count,
+            ),
         )
 
 
@@ -540,7 +771,12 @@ def load_keyword_batch_with_spark(
                 F.trim(F.coalesce(F.col("keyword"), F.lit(""))).alias("keyword"),
                 F.trim(F.coalesce(F.col("keyword_normalized"), F.lit(""))).alias("keyword_normalized"),
                 F.col("ngram_size").cast("int").alias("ngram_size"),
+                F.col("base_score").cast("double").alias("base_score"),
+                F.col("quality_penalty").cast("double").alias("quality_penalty"),
                 F.col("article_score").cast("double").alias("article_score"),
+                F.trim(F.coalesce(F.col("quality_flags"), F.lit(""))).alias("quality_flags"),
+                F.trim(F.coalesce(F.col("keyword_score_version"), F.lit(""))).alias("keyword_score_version"),
+                F.trim(F.coalesce(F.col("keyword_config_hash"), F.lit(""))).alias("keyword_config_hash"),
                 F.col("rank_in_article").cast("int").alias("rank_in_article"),
             )
             .where(
@@ -552,7 +788,11 @@ def load_keyword_batch_with_spark(
                 & (F.col("keyword") != "")
                 & (F.col("keyword_normalized") != "")
                 & F.col("ngram_size").isNotNull()
+                & F.col("base_score").isNotNull()
+                & F.col("quality_penalty").isNotNull()
                 & F.col("article_score").isNotNull()
+                & (F.col("keyword_score_version") != "")
+                & (F.col("keyword_config_hash") != "")
                 & F.col("rank_in_article").isNotNull()
             )
         )
@@ -574,8 +814,17 @@ def load_keyword_batch_with_spark(
                 F.trim(F.coalesce(F.col("keyword_normalized"), F.lit(""))).alias("keyword_normalized"),
                 F.col("ngram_size").cast("int").alias("ngram_size"),
                 F.col("article_count").cast("int").alias("article_count"),
+                F.col("base_score").cast("double").alias("base_score"),
+                F.col("quality_penalty").cast("double").alias("quality_penalty"),
                 F.col("weighted_score").cast("double").alias("weighted_score"),
                 F.col("avg_article_score").cast("double").alias("avg_article_score"),
+                F.trim(F.coalesce(F.col("quality_flags"), F.lit(""))).alias("quality_flags"),
+                F.trim(F.coalesce(F.col("keyword_score_version"), F.lit(""))).alias("keyword_score_version"),
+                F.trim(F.coalesce(F.col("keyword_config_hash"), F.lit(""))).alias("keyword_config_hash"),
+                F.col("source_spread_score").cast("double").alias("source_spread_score"),
+                F.col("recency_score").cast("double").alias("recency_score"),
+                F.col("breakout_score").cast("double").alias("breakout_score"),
+                F.col("final_keyword_score").cast("double").alias("final_keyword_score"),
                 F.col("rank_in_group").cast("int").alias("rank_in_group"),
             )
             .where(
@@ -586,8 +835,16 @@ def load_keyword_batch_with_spark(
                 & (F.col("keyword_normalized") != "")
                 & F.col("ngram_size").isNotNull()
                 & F.col("article_count").isNotNull()
+                & F.col("base_score").isNotNull()
+                & F.col("quality_penalty").isNotNull()
                 & F.col("weighted_score").isNotNull()
                 & F.col("avg_article_score").isNotNull()
+                & (F.col("keyword_score_version") != "")
+                & (F.col("keyword_config_hash") != "")
+                & F.col("source_spread_score").isNotNull()
+                & F.col("recency_score").isNotNull()
+                & F.col("breakout_score").isNotNull()
+                & F.col("final_keyword_score").isNotNull()
                 & F.col("rank_in_group").isNotNull()
             )
         )
@@ -617,6 +874,7 @@ def main() -> None:
         fallback_path=args.input_path,
         latest_resolver=resolve_latest_keyword_batch,
     )
+    batch_metadata = read_keyword_batch_metadata(hdfs_client=hdfs_client, batch_path=batch_path)
     batch_uri = build_hdfs_uri(batch_path, args.hdfs_default_fs)
 
     log_event(
@@ -625,6 +883,8 @@ def main() -> None:
         "keyword_load_started",
         input_path=batch_path,
         input_uri=batch_uri,
+        keyword_score_version=batch_metadata["keyword_score_version"],
+        keyword_config_hash=batch_metadata["keyword_config_hash"],
         db_host=args.db_host,
         db_name=args.db_name,
         status="running",
@@ -639,23 +899,29 @@ def main() -> None:
             keyword_daily_source_table=args.keyword_daily_source_table,
         )
 
-        already_loaded = is_batch_loaded(
+        loaded_batch_metadata = get_loaded_batch_metadata(
             connection=connection,
             history_table=args.history_table,
             batch_path=batch_path,
         )
-        if already_loaded and not args.force_reload:
+        same_config_loaded = (
+            loaded_batch_metadata is not None
+            and str(loaded_batch_metadata.get("keyword_config_hash", "")) == batch_metadata["keyword_config_hash"]
+        )
+        if same_config_loaded and not args.force_reload:
             log_event(
                 logger,
                 20,
                 "keyword_load_skipped_already_loaded_batch",
                 input_path=batch_path,
+                keyword_score_version=batch_metadata["keyword_score_version"],
+                keyword_config_hash=batch_metadata["keyword_config_hash"],
                 status="success",
                 duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
             )
             return
 
-        if already_loaded and args.force_reload:
+        if loaded_batch_metadata is not None:
             delete_existing_batch_rows(
                 connection=connection,
                 article_keywords_table=args.article_keywords_table,
@@ -677,6 +943,8 @@ def main() -> None:
             connection=connection,
             history_table=args.history_table,
             batch_path=batch_path,
+            keyword_score_version=batch_metadata["keyword_score_version"],
+            keyword_config_hash=batch_metadata["keyword_config_hash"],
             article_keyword_row_count=article_keyword_row_count,
             keyword_daily_source_row_count=keyword_daily_source_row_count,
         )
@@ -691,6 +959,8 @@ def main() -> None:
             article_keyword_row_count=article_keyword_row_count,
             keyword_daily_source_row_count=keyword_daily_source_row_count,
             force_reload=args.force_reload,
+            keyword_score_version=batch_metadata["keyword_score_version"],
+            keyword_config_hash=batch_metadata["keyword_config_hash"],
             status="success",
             duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
         )

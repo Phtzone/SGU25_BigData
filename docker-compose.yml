@@ -50,6 +50,7 @@ x-airflow-common: &airflow-common
     SPARK_LOCAL_DIRS: /tmp/spark-local
     KEYWORD_SETTINGS_PATH: /opt/airflow/project/config/keyword_settings.json
     KEYWORD_STOPWORDS_PATH: /opt/airflow/project/config/stopwords_vi.txt
+    KEYWORD_SOURCE_BLOCKLIST_PATH: /opt/airflow/project/config/source_keyword_blocklist.json
     LOG_JSON: "1"
   volumes:
     - ./dags:/opt/airflow/dags:ro
