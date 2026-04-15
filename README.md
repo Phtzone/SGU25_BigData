@@ -72,6 +72,17 @@ The optional `dashboard` profile adds:
 
 - `streamlit-dashboard`
 
+### Dashboard Refresh
+
+The Streamlit dashboard can trigger a manual Airflow DAG run for `news_pipeline`.
+
+Required environment variables for the refresh button:
+
+- `AIRFLOW_API_URL`
+- `AIRFLOW_USERNAME`
+- `AIRFLOW_PASSWORD`
+- `APP_TIMEZONE` (defaults to `Asia/Bangkok`)
+
 Exposed ports:
 
 - Kafka external listener: `localhost:9093`

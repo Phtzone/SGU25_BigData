@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -9,6 +10,8 @@ import psycopg2
 import streamlit as st
 
 try:
+    from dashboard.airflow_client import AirflowApiClient, AirflowApiError
+    from dashboard.display_utils import round_metric_columns, shorten_hash_columns
     from dashboard.query_builders import (
         build_article_keywords_query,
         build_breakout_keywords_query,
@@ -21,7 +24,15 @@ try:
         build_source_options_query,
     )
     from dashboard.export_utils import dataframe_to_csv_bytes, make_export_filename
+    from dashboard.refresh_state import (
+        REFRESH_STATE_DEFAULTS,
+        build_refresh_status_message,
+        evaluate_today_data,
+        local_today,
+    )
 except ModuleNotFoundError:
+    from airflow_client import AirflowApiClient, AirflowApiError
+    from display_utils import round_metric_columns, shorten_hash_columns
     from query_builders import (
         build_article_keywords_query,
         build_breakout_keywords_query,
@@ -34,6 +45,12 @@ except ModuleNotFoundError:
         build_source_options_query,
     )
     from export_utils import dataframe_to_csv_bytes, make_export_filename
+    from refresh_state import (
+        REFRESH_STATE_DEFAULTS,
+        build_refresh_status_message,
+        evaluate_today_data,
+        local_today,
+    )
 
 
 def page_setup() -> None:
@@ -113,6 +130,17 @@ def db_config() -> dict[str, Any]:
     }
 
 
+APP_TIMEZONE = resolve_secret("APP_TIMEZONE", "Asia/Bangkok")
+
+
+def airflow_config() -> dict[str, Any]:
+    return {
+        "base_url": resolve_secret("AIRFLOW_API_URL", "http://localhost:8080/api/v1"),
+        "username": resolve_secret("AIRFLOW_USERNAME", ""),
+        "password": resolve_secret("AIRFLOW_PASSWORD", ""),
+    }
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def run_dataframe_query(query: str, params: tuple[Any, ...]) -> pd.DataFrame:
     with psycopg2.connect(**db_config()) as connection:
@@ -138,6 +166,106 @@ def render_header() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def ensure_refresh_state() -> None:
+    for key, value in REFRESH_STATE_DEFAULTS.items():
+        st.session_state.setdefault(key, value)
+
+
+def get_airflow_client() -> AirflowApiClient:
+    config = airflow_config()
+    if not config["username"] or not config["password"]:
+        raise AirflowApiError("Missing Airflow credentials.")
+    return AirflowApiClient(**config)
+
+
+def format_refresh_timestamp(value: datetime | None) -> str:
+    if value is None:
+        return "None"
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def trigger_refresh() -> None:
+    client = get_airflow_client()
+    result = client.trigger_dag_run("news_pipeline")
+    st.session_state["active_dag_run_id"] = result["dag_run_id"]
+    st.session_state["refresh_status"] = (result.get("state") or "queued").lower()
+    st.session_state["last_triggered_at"] = datetime.now()
+    st.session_state["refresh_error"] = None
+
+
+def poll_refresh_status() -> None:
+    dag_run_id = st.session_state.get("active_dag_run_id")
+    if not dag_run_id:
+        return
+
+    client = get_airflow_client()
+    result = client.get_dag_run("news_pipeline", dag_run_id)
+    state = (result.get("state") or "queued").lower()
+    st.session_state["refresh_status"] = state
+    if state == "success":
+        st.session_state["last_successful_refresh_at"] = datetime.now()
+        st.session_state["active_dag_run_id"] = None
+        st.session_state["refresh_error"] = None
+        st.cache_data.clear()
+    elif state == "failed":
+        st.session_state["active_dag_run_id"] = None
+
+
+def fetch_today_summary(filters: dict[str, Any]) -> dict[str, Any]:
+    today = local_today(APP_TIMEZONE)
+    query, params = build_keyword_metrics_query(
+        date_from=today,
+        date_to=today,
+        sources=filters["sources"],
+        ngram_sizes=filters["ngram_sizes"],
+        keyword_search="",
+    )
+    metrics_df = run_dataframe_query(query, tuple(params))
+    if metrics_df.empty:
+        return evaluate_today_data(dataframe=pd.DataFrame(), today=today)
+
+    metrics_row = metrics_df.iloc[0]
+    latest_event_date = metrics_row.get("latest_event_date")
+    today_row_count = int(metrics_row.get("keyword_rows") or 0)
+    return {
+        "today": today,
+        "today_row_count": today_row_count,
+        "latest_event_date": latest_event_date,
+        "show_empty_today_state": today_row_count == 0,
+    }
+
+
+def render_refresh_status_panel(
+    filters: dict[str, Any],
+    metrics: pd.Series | None,
+) -> None:
+    today_summary = fetch_today_summary(filters)
+    latest_event_date = metrics.get("latest_event_date") if metrics is not None else None
+    st.caption(
+        build_refresh_status_message(
+            refresh_status=str(st.session_state.get("refresh_status", "idle")),
+            latest_event_date=latest_event_date,
+            today_row_count=int(today_summary["today_row_count"]),
+            refresh_error=st.session_state.get("refresh_error"),
+        )
+    )
+    st.caption(
+        "Last triggered: "
+        f"{format_refresh_timestamp(st.session_state.get('last_triggered_at'))} | "
+        "Last successful refresh: "
+        f"{format_refresh_timestamp(st.session_state.get('last_successful_refresh_at'))}"
+    )
+    if st.session_state.get("refresh_status") == "failed" and st.session_state.get("refresh_error"):
+        st.error(
+            "Refresh failed. Inspect the Airflow run logs for details.\n\n"
+            f"{st.session_state['refresh_error']}"
+        )
+    elif st.session_state.get("refresh_status") == "success" and today_summary["show_empty_today_state"]:
+        st.info("Da refresh thanh cong nhung chua co bai bao ngay hom nay tu cac nguon RSS.")
+    elif st.session_state.get("active_dag_run_id"):
+        st.info("Refresh is in progress. Dashboard status will update automatically.")
 
 
 def sidebar_filters() -> dict[str, Any]:
@@ -173,9 +301,14 @@ def sidebar_filters() -> dict[str, Any]:
         keyword_search = st.text_input("Keyword contains", value="")
         title_search = st.text_input("Article title contains", value="")
 
-        if st.button("Refresh data", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+        refresh_active = st.session_state.get("active_dag_run_id") is not None
+        if st.button("Refresh today's data", width="stretch", disabled=refresh_active):
+            try:
+                trigger_refresh()
+                st.rerun()
+            except AirflowApiError as exc:
+                st.session_state["refresh_status"] = "failed"
+                st.session_state["refresh_error"] = str(exc)
 
     return {
         "date_from": date_from,
@@ -188,7 +321,7 @@ def sidebar_filters() -> dict[str, Any]:
     }
 
 
-def render_metrics(filters: dict[str, Any]) -> None:
+def render_metrics(filters: dict[str, Any]) -> pd.Series | None:
     metrics_query, metrics_params = build_keyword_metrics_query(
         date_from=filters["date_from"],
         date_to=filters["date_to"],
@@ -220,23 +353,7 @@ def render_metrics(filters: dict[str, Any]) -> None:
         st.caption(
             f"Keyword model: {version_label} | Config variants in current slice: {config_versions} | Latest event date: {latest_event_date}"
         )
-
-
-def round_metric_columns(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    rounded_df = dataframe.copy()
-    for column_name in columns:
-        if column_name in rounded_df.columns:
-            rounded_df[column_name] = rounded_df[column_name].round(2)
-    return rounded_df
-
-
-def shorten_hash_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
-    display_df = dataframe.copy()
-    if "keyword_config_hash" in display_df.columns:
-        display_df["keyword_config_hash"] = display_df["keyword_config_hash"].astype(str).str.slice(0, 8)
-    return display_df
-
-
+    return metrics
 def render_download_button(
     *,
     label: str,
@@ -258,7 +375,7 @@ def render_download_button(
         ),
         mime="text/csv",
         key=key,
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -317,10 +434,10 @@ def render_keyword_timeseries(
     chart_left, chart_right = st.columns(2)
     with chart_left:
         st.caption("Final keyword score by day")
-        st.line_chart(weighted_pivot, use_container_width=True)
+        st.line_chart(weighted_pivot, width="stretch")
     with chart_right:
         st.caption("Supporting articles by day")
-        st.line_chart(article_pivot, use_container_width=True)
+        st.line_chart(article_pivot, width="stretch")
 
 
 def render_breakout_table(filters: dict[str, Any]) -> None:
@@ -351,7 +468,7 @@ def render_breakout_table(filters: dict[str, Any]) -> None:
         ],
     )
     display_df = shorten_hash_columns(display_df)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
     render_download_button(
         label="Download breakout keywords CSV",
         dataframe=display_df,
@@ -383,7 +500,7 @@ def render_overall_tab(filters: dict[str, Any]) -> None:
                 ["weighted_score", "avg_article_score", "final_keyword_score"],
             )
             display_df = shorten_hash_columns(display_df)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(display_df, width="stretch", hide_index=True)
             render_download_button(
                 label="Download overall trends CSV",
                 dataframe=display_df,
@@ -440,7 +557,7 @@ def render_source_tab(filters: dict[str, Any]) -> None:
         ["weighted_score", "avg_article_score", "source_spread_score", "recency_score", "breakout_score", "final_keyword_score"],
     )
     display_df = shorten_hash_columns(display_df)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
     render_download_button(
         label="Download source trends CSV",
         dataframe=display_df,
@@ -509,7 +626,7 @@ def render_source_tab(filters: dict[str, Any]) -> None:
         source_article_df = shorten_hash_columns(source_article_df)
         st.dataframe(
             source_article_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "link": st.column_config.LinkColumn("Article link"),
@@ -545,7 +662,7 @@ def render_article_tab(filters: dict[str, Any]) -> None:
     display_df = shorten_hash_columns(display_df)
     st.dataframe(
         display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "link": st.column_config.LinkColumn("Article link"),
@@ -668,7 +785,7 @@ def render_keyword_detail_tab(filters: dict[str, Any]) -> None:
             aggfunc="sum",
             fill_value=0,
         )
-        st.line_chart(source_pivot, use_container_width=True)
+        st.line_chart(source_pivot, width="stretch")
     with right:
         st.caption("Latest-day source leaders")
         latest_compare_df = compare_df.loc[compare_df["event_date"] == latest_event_date]
@@ -677,12 +794,12 @@ def render_keyword_detail_tab(filters: dict[str, Any]) -> None:
             .set_index("source")
             .sort_values("final_keyword_score", ascending=False)
         )
-        st.bar_chart(latest_source_scores, use_container_width=True)
+        st.bar_chart(latest_source_scores, width="stretch")
 
     compare_col, detail_col = st.columns(2)
     with compare_col:
         st.subheader("Compare Sources")
-        st.dataframe(compare_display_df, use_container_width=True, hide_index=True)
+        st.dataframe(compare_display_df, width="stretch", hide_index=True)
         render_download_button(
             label="Download source compare CSV",
             dataframe=compare_display_df,
@@ -692,7 +809,7 @@ def render_keyword_detail_tab(filters: dict[str, Any]) -> None:
         )
     with detail_col:
         st.subheader("Keyword Detail Rows")
-        st.dataframe(detail_display_df, use_container_width=True, hide_index=True)
+        st.dataframe(detail_display_df, width="stretch", hide_index=True)
         render_download_button(
             label="Download keyword detail CSV",
             dataframe=detail_display_df,
@@ -713,7 +830,7 @@ def render_keyword_detail_tab(filters: dict[str, Any]) -> None:
     article_display_df = shorten_hash_columns(article_display_df)
     st.dataframe(
         article_display_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         column_config={
             "link": st.column_config.LinkColumn("Article link"),
@@ -731,10 +848,20 @@ def render_keyword_detail_tab(filters: dict[str, Any]) -> None:
 def main() -> None:
     page_setup()
     render_header()
+    ensure_refresh_state()
 
     try:
+        if st.session_state.get("active_dag_run_id"):
+            try:
+                poll_refresh_status()
+            except AirflowApiError as exc:
+                st.session_state["refresh_status"] = "failed"
+                st.session_state["refresh_error"] = str(exc)
+                st.session_state["active_dag_run_id"] = None
+
         filters = sidebar_filters()
-        render_metrics(filters)
+        metrics = render_metrics(filters)
+        render_refresh_status_panel(filters, metrics)
         overall_tab, source_tab, article_tab, keyword_tab = st.tabs(
             ["Overall Trends", "Source Trends", "Article Keywords", "Keyword Detail"]
         )
@@ -752,6 +879,10 @@ def main() -> None:
         st.info(
             "Set ANALYTICS_DB_* environment variables or Streamlit secrets before starting the app."
         )
+
+    if st.session_state.get("active_dag_run_id"):
+        time.sleep(5)
+        st.rerun()
 
 
 if __name__ == "__main__":
