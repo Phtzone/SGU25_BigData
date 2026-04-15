@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS analytics_load_history (
 
 CREATE TABLE IF NOT EXISTS ods_news_articles (
     link TEXT PRIMARY KEY,
+    batch_path TEXT NOT NULL,
     title TEXT NOT NULL,
     summary TEXT NOT NULL,
     source TEXT NOT NULL,
@@ -22,6 +23,9 @@ CREATE INDEX IF NOT EXISTS idx_ods_news_articles_event_date
 
 CREATE INDEX IF NOT EXISTS idx_ods_news_articles_source
     ON ods_news_articles (source);
+
+CREATE INDEX IF NOT EXISTS idx_ods_news_articles_batch_path
+    ON ods_news_articles (batch_path);
 
 CREATE TABLE IF NOT EXISTS mart_news_daily_source (
     event_date DATE NOT NULL,

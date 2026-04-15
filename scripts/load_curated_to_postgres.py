@@ -208,6 +208,7 @@ def ensure_analytics_tables(
                 """
                 CREATE TABLE IF NOT EXISTS {ods_table} (
                     link TEXT PRIMARY KEY,
+                    batch_path TEXT NOT NULL,
                     title TEXT NOT NULL,
                     summary TEXT NOT NULL,
                     source TEXT NOT NULL,
@@ -255,6 +256,17 @@ def ensure_analytics_tables(
                 history_table=sql.Identifier(history_table)
             )
         )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {ods_table} ADD COLUMN IF NOT EXISTS batch_path TEXT").format(
+                ods_table=sql.Identifier(ods_table)
+            )
+        )
+        cursor.execute(
+            sql.SQL("CREATE INDEX IF NOT EXISTS {index_name} ON {ods_table} (batch_path)").format(
+                index_name=sql.Identifier(f"{ods_table}_batch_path_idx"),
+                ods_table=sql.Identifier(ods_table),
+            )
+        )
     connection.commit()
 
 
@@ -295,6 +307,7 @@ def upsert_ods_rows(
     *,
     connection: Any,
     ods_table: str,
+    batch_path: str,
     rows: list[dict[str, Any]],
 ) -> int:
     from psycopg2 import sql
@@ -303,6 +316,7 @@ def upsert_ods_rows(
     values = [
         (
             row["link"],
+            batch_path,
             row["title"],
             row["summary"],
             row["source"],
@@ -321,6 +335,7 @@ def upsert_ods_rows(
         """
         INSERT INTO {ods_table} (
             link,
+            batch_path,
             title,
             summary,
             source,
@@ -331,6 +346,7 @@ def upsert_ods_rows(
         )
         VALUES %s
         ON CONFLICT (link) DO UPDATE SET
+            batch_path = EXCLUDED.batch_path,
             title = EXCLUDED.title,
             summary = EXCLUDED.summary,
             source = EXCLUDED.source,
@@ -352,6 +368,7 @@ def upsert_ods_row_chunks(
     *,
     connection: Any,
     ods_table: str,
+    batch_path: str,
     row_chunks: Any,
 ) -> tuple[int, list[date]]:
     total_rows = 0
@@ -361,12 +378,35 @@ def upsert_ods_row_chunks(
         upserted_count = upsert_ods_rows(
             connection=connection,
             ods_table=ods_table,
+            batch_path=batch_path,
             rows=rows,
         )
         total_rows += upserted_count
         event_dates.extend(_ensure_date(row["event_date"]) for row in rows)
 
     return total_rows, event_dates
+
+
+def delete_existing_ods_batch_rows(
+    *,
+    connection: Any,
+    ods_table: str,
+    batch_path: str,
+) -> list[date]:
+    from psycopg2 import sql
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                """
+                DELETE FROM {ods_table}
+                WHERE batch_path = %s
+                RETURNING event_date
+                """
+            ).format(ods_table=sql.Identifier(ods_table)),
+            (batch_path,),
+        )
+        return [_ensure_date(row[0]) for row in cursor.fetchall()]
 
 
 def refresh_daily_source_mart(
@@ -509,20 +549,27 @@ def main() -> None:
             )
             return
 
+        deleted_event_dates = delete_existing_ods_batch_rows(
+            connection=connection,
+            ods_table=args.ods_table,
+            batch_path=batch_path,
+        )
         spark, curated_df = build_curated_dataframe(input_uri=input_uri, app_name=args.app_name)
         try:
             upserted_count, event_dates = upsert_ods_row_chunks(
                 connection=connection,
                 ods_table=args.ods_table,
+                batch_path=batch_path,
                 row_chunks=iter_dataframe_chunks(curated_df, 500),
             )
         finally:
             spark.stop()
+        affected_event_dates = deleted_event_dates + event_dates
         refreshed_count = refresh_daily_source_mart(
             connection=connection,
             ods_table=args.ods_table,
             mart_table=args.mart_table,
-            event_dates=event_dates,
+            event_dates=affected_event_dates,
         )
         mark_batch_loaded(
             connection=connection,
@@ -541,7 +588,7 @@ def main() -> None:
             input_uri=input_uri,
             row_count=upserted_count,
             refreshed_group_count=refreshed_count,
-            affected_event_dates=sorted({d.isoformat() for d in event_dates}),
+            affected_event_dates=sorted({d.isoformat() for d in affected_event_dates}),
             status="success",
             duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
         )

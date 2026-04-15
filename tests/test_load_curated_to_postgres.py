@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 import scripts.load_curated_to_postgres as curated_loader
@@ -108,6 +109,80 @@ class LoadCuratedToPostgresTests(unittest.TestCase):
 
         chunks = list(curated_loader.iter_dataframe_chunks(FakeDataFrame(), 2))  # type: ignore[attr-defined]
         self.assertEqual(chunks, [[{"id": 1}, {"id": 2}], [{"id": 3}]])
+
+    def test_delete_existing_ods_batch_rows_returns_deleted_event_dates(self) -> None:
+        self.assertTrue(
+            hasattr(curated_loader, "delete_existing_ods_batch_rows"),
+            "delete_existing_ods_batch_rows should exist",
+        )
+
+        executed_params = []
+
+        class FakeCursor:
+            def execute(self, query, params=None):
+                executed_params.append(params)
+
+            @staticmethod
+            def fetchall():
+                return [(date(2026, 4, 4),), (date(2026, 4, 5),)]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeConnection:
+            @staticmethod
+            def cursor():
+                return FakeCursor()
+
+        deleted_event_dates = curated_loader.delete_existing_ods_batch_rows(  # type: ignore[attr-defined]
+            connection=FakeConnection(),
+            ods_table="ods_news_articles",
+            batch_path="/news/curated/2026/04/04/news_120000000000",
+        )
+
+        self.assertEqual(deleted_event_dates, [date(2026, 4, 4), date(2026, 4, 5)])
+        self.assertEqual(
+            executed_params,
+            [("/news/curated/2026/04/04/news_120000000000",)],
+        )
+
+    def test_ensure_analytics_tables_adds_batch_path_column_to_ods_table(self) -> None:
+        executed_queries = []
+
+        class FakeCursor:
+            def execute(self, query, params=None):  # noqa: ARG002
+                executed_queries.append(str(query))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeConnection:
+            committed = False
+
+            @staticmethod
+            def cursor():
+                return FakeCursor()
+
+            @classmethod
+            def commit(cls):
+                cls.committed = True
+
+        curated_loader.ensure_analytics_tables(
+            connection=FakeConnection(),
+            history_table="analytics_load_history",
+            ods_table="ods_news_articles",
+            mart_table="mart_news_daily_source",
+        )
+
+        joined_queries = "\n".join(executed_queries)
+        self.assertIn("batch_path TEXT", joined_queries)
+        self.assertTrue(FakeConnection.committed)
 
 
 if __name__ == "__main__":

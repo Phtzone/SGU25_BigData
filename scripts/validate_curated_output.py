@@ -43,25 +43,30 @@ def main() -> None:
 
     files = list_hdfs_files(client, args.path)
     parquet_files = [item for item in files if item[0].endswith(".parquet")]
-    success_markers = [item for item in files if PurePosixPath(item[0]).name == "_SUCCESS"]
 
     if not parquet_files:
         raise SystemExit(f"No curated Parquet files found under {args.path}")
 
     latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
+    latest_batch = resolve_batch_path(latest_parquet)
+    latest_batch_prefix = latest_batch.rstrip("/") + "/"
+    latest_batch_files = [item for item in files if item[0].startswith(latest_batch_prefix)]
+    latest_batch_parquet_files = [item for item in latest_batch_files if item[0].endswith(".parquet")]
+    latest_batch_success_markers = [
+        item for item in latest_batch_files if PurePosixPath(item[0]).name == "_SUCCESS"
+    ]
     partitions = {
         str(PurePosixPath(item[0]).parent)
-        for item in parquet_files
+        for item in latest_batch_parquet_files
         if "event_date=" in item[0] and "source=" in item[0]
     }
     if not partitions:
         raise SystemExit("Curated batch is missing partition-style layout for event_date and source.")
 
-    latest_batch = resolve_batch_path(latest_parquet)
     payload = {
         "path": args.path,
-        "parquet_file_count": len(parquet_files),
-        "success_marker_count": len(success_markers),
+        "parquet_file_count": len(latest_batch_parquet_files),
+        "success_marker_count": len(latest_batch_success_markers),
         "partition_count": len(partitions),
         "latest_batch": latest_batch,
         "latest_parquet_file": latest_parquet,
@@ -76,9 +81,9 @@ def main() -> None:
         20,
         "curated_zone_validation_completed",
         output_path=args.path,
-        row_count=len(parquet_files),
+        row_count=len(latest_batch_parquet_files),
         partition_count=len(partitions),
-        success_marker_count=len(success_markers),
+        success_marker_count=len(latest_batch_success_markers),
         latest_batch=latest_batch,
         latest_parquet_file=latest_parquet,
         status="success",

@@ -253,7 +253,7 @@ By default this script upserts into:
 - `mart_news_daily_source`
 
 The loader now tracks a deterministic fingerprint per curated batch in `analytics_load_history`.
-If the same `batch_path` is regenerated with different Parquet contents, the loader reloads it instead of silently skipping it.
+If the same `batch_path` is regenerated with different Parquet contents, the loader replaces the prior ODS rows for that batch before reloading it instead of silently skipping it.
 
 Load the latest keyword batch into analytics PostgreSQL:
 

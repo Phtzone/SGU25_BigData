@@ -51,6 +51,39 @@ class SubmissionReadinessValidatorTests(unittest.TestCase):
 
         self.assertIn("partition", str(error.exception).lower())
 
+    def test_validate_curated_output_uses_latest_batch_for_partition_check(self) -> None:
+        class FakeClient:
+            def __init__(self, *args, **kwargs) -> None:
+                pass
+
+            @staticmethod
+            def status(path: str, strict: bool = False):  # noqa: ARG004
+                return {"type": "DIRECTORY"}
+
+        fake_hdfs = types.SimpleNamespace(InsecureClient=FakeClient)
+        files = [
+            (
+                "/news/curated/2026/04/03/news_100000000000/event_date=2026-04-03/source=VNExpress/part-0000.parquet",
+                {"modificationTime": 100},
+            ),
+            (
+                "/news/curated/2026/04/04/news_120000000000/part-0000.parquet",
+                {"modificationTime": 200},
+            ),
+        ]
+
+        with patch.dict(sys.modules, {"hdfs": fake_hdfs}):
+            with patch("scripts.validate_curated_output.list_hdfs_files", return_value=files):
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["prog", "--path", "/news/curated", "--json"],
+                ):
+                    with self.assertRaises(SystemExit) as error:
+                        validate_curated_output.main()
+
+        self.assertIn("partition", str(error.exception).lower())
+
 
 if __name__ == "__main__":
     unittest.main()
