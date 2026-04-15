@@ -8,7 +8,7 @@ from datetime import date
 from typing import Any, Iterable
 
 from Spark_jobs.transform_news_raw_to_processed import create_spark_session
-from common.hdfs_utils import build_hdfs_uri, derive_hdfs_default_fs, resolve_explicit_or_latest_path
+from common.hdfs_utils import build_hdfs_uri, derive_hdfs_default_fs, read_hdfs_bytes, resolve_explicit_or_latest_path
 from common.logging_utils import configure_logging, log_event
 from scripts.validate_keyword_output import resolve_latest_keyword_batch
 
@@ -28,6 +28,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--hdfs-url", default=default_hdfs_url)
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
+    parser.add_argument(
+        "--webhdfs-redirect-host",
+        default=os.getenv("WEBHDFS_REDIRECT_HOST", ""),
+        help="Override the hostname returned by WebHDFS redirects when reading metadata files.",
+    )
     parser.add_argument(
         "--hdfs-default-fs",
         default=os.getenv("HDFS_DEFAULT_FS", derive_hdfs_default_fs(default_hdfs_url)),
@@ -88,13 +93,26 @@ def connect_to_postgres(args: argparse.Namespace) -> Any:
     )
 
 
-def read_keyword_batch_metadata(*, hdfs_client: Any, batch_path: str) -> dict[str, Any]:
+def read_keyword_batch_metadata(
+    *,
+    hdfs_client: Any,
+    batch_path: str,
+    hdfs_url: str,
+    hdfs_user: str,
+    redirect_host: str = "",
+) -> dict[str, Any]:
     metadata_path = f"{batch_path}/{KEYWORD_METADATA_FILENAME}"
     if not hdfs_client.status(metadata_path, strict=False):
         raise SystemExit(f"Keyword batch metadata file does not exist: {metadata_path}")
 
-    with hdfs_client.read(metadata_path, encoding="utf-8") as metadata_file:
-        payload = json.load(metadata_file)
+    payload = json.loads(
+        read_hdfs_bytes(
+            hdfs_url=hdfs_url,
+            hdfs_user=hdfs_user,
+            path=metadata_path,
+            redirect_host=redirect_host,
+        ).decode("utf-8")
+    )
 
     if not isinstance(payload, dict):
         raise SystemExit(f"Keyword batch metadata file is invalid JSON object: {metadata_path}")
@@ -107,6 +125,13 @@ def read_keyword_batch_metadata(*, hdfs_client: Any, batch_path: str) -> dict[st
         )
 
     return payload
+
+
+def reset_streamlit_keyword_views(connection: Any) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("DROP VIEW IF EXISTS vw_streamlit_keyword_daily_overall_latest")
+        cursor.execute("DROP VIEW IF EXISTS vw_streamlit_keyword_daily_source_latest")
+        cursor.execute("DROP VIEW IF EXISTS vw_streamlit_article_keywords_latest")
 
 
 def ensure_keyword_tables(
@@ -315,6 +340,9 @@ def ensure_keyword_tables(
                 """
             ).format(keyword_daily_source_table=sql.Identifier(keyword_daily_source_table))
         )
+
+        reset_streamlit_keyword_views(connection)
+
         cursor.execute(
             sql.SQL(
                 """
@@ -874,7 +902,13 @@ def main() -> None:
         fallback_path=args.input_path,
         latest_resolver=resolve_latest_keyword_batch,
     )
-    batch_metadata = read_keyword_batch_metadata(hdfs_client=hdfs_client, batch_path=batch_path)
+    batch_metadata = read_keyword_batch_metadata(
+        hdfs_client=hdfs_client,
+        batch_path=batch_path,
+        hdfs_url=args.hdfs_url,
+        hdfs_user=args.hdfs_user,
+        redirect_host=args.webhdfs_redirect_host,
+    )
     batch_uri = build_hdfs_uri(batch_path, args.hdfs_default_fs)
 
     log_event(

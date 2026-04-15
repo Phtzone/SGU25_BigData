@@ -15,10 +15,15 @@ from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
-    list_hdfs_files,
     resolve_explicit_or_latest_path,
+    upload_hdfs_bytes,
 )
 from common.logging_utils import configure_logging, log_event
+from common.pipeline_paths import (
+    resolve_batch_from_parquet_path,
+    resolve_latest_parquet_batch,
+    write_output_path_file,
+)
 
 DEFAULT_KEYWORD_SETTINGS = {
     "keyword_score_version": "v2",
@@ -111,6 +116,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hdfs-url", default=default_hdfs_url)
     parser.add_argument("--hdfs-user", default=os.getenv("HDFS_USER", "root"))
     parser.add_argument(
+        "--webhdfs-redirect-host",
+        default=os.getenv("WEBHDFS_REDIRECT_HOST", ""),
+        help="Override the hostname returned by WebHDFS redirects when writing metadata files.",
+    )
+    parser.add_argument(
         "--hdfs-default-fs",
         default=os.getenv("HDFS_DEFAULT_FS", derive_hdfs_default_fs(default_hdfs_url)),
         help="Spark-accessible HDFS root, for example hdfs://namenode:9000.",
@@ -144,34 +154,21 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_curated_batch_from_parquet(parquet_path: str) -> str:
-    path = PurePosixPath(parquet_path)
-    parts = path.parts
-
-    for index, part in enumerate(parts):
-        if part.startswith("event_date="):
-            if index == 0:
-                break
-            return str(PurePosixPath(*parts[:index]))
-
-    return str(path.parent)
+    return resolve_batch_from_parquet_path(
+        parquet_path,
+        partition_prefixes=("event_date=",),
+        parents_up_if_unpartitioned=1,
+    )
 
 
 def resolve_latest_curated_batch(client: Any, path: str) -> str:
-    status = client.status(path, strict=False)
-    if not status:
-        raise SystemExit(f"HDFS path does not exist: {path}")
-
-    if status["type"] == "FILE":
-        if not path.endswith(".parquet"):
-            raise SystemExit(f"Expected a Parquet file but got: {path}")
-        return resolve_curated_batch_from_parquet(path)
-
-    parquet_files = [item for item in list_hdfs_files(client, path) if item[0].endswith(".parquet")]
-    if not parquet_files:
-        raise SystemExit(f"No curated Parquet files found under {path}")
-
-    latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
-    return resolve_curated_batch_from_parquet(latest_parquet)
+    return resolve_latest_parquet_batch(
+        client,
+        path,
+        batch_from_parquet=resolve_curated_batch_from_parquet,
+        missing_status_message="HDFS path does not exist: {path}",
+        missing_parquet_message="No curated Parquet files found under {path}",
+    )
 
 
 def build_keyword_output_path(curated_batch_path: str, output_base_path: str) -> str:
@@ -183,13 +180,23 @@ def build_keyword_output_path(curated_batch_path: str, output_base_path: str) ->
     return str(PurePosixPath(output_base_path, year, month, day, batch_name))
 
 
-def write_output_path_file(path_file: str, output_path: str) -> None:
-    if not path_file.strip():
-        return
-
-    path = Path(path_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(output_path + "\n", encoding="utf-8")
+def write_keyword_metadata(
+    *,
+    hdfs_url: str,
+    hdfs_user: str,
+    output_path: str,
+    metadata_payload: dict[str, Any],
+    redirect_host: str = "",
+) -> None:
+    upload_hdfs_bytes(
+        hdfs_url=hdfs_url,
+        hdfs_user=hdfs_user,
+        path=f"{output_path}/{KEYWORD_METADATA_FILENAME}",
+        data=json.dumps(metadata_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+        redirect_host=redirect_host,
+        overwrite=True,
+        content_type="application/json",
+    )
 
 
 def load_keyword_settings(config_path: str) -> dict[str, Any]:
@@ -760,10 +767,12 @@ def main() -> None:
         "article_keyword_count": metrics["article_keyword_count"],
         "keyword_daily_source_count": metrics["keyword_daily_source_count"],
     }
-    client.write(
-        f"{target_path}/{KEYWORD_METADATA_FILENAME}",
-        data=json.dumps(metadata_payload, ensure_ascii=False, indent=2).encode("utf-8"),
-        overwrite=True,
+    write_keyword_metadata(
+        hdfs_url=args.hdfs_url,
+        hdfs_user=args.hdfs_user,
+        output_path=target_path,
+        metadata_payload=metadata_payload,
+        redirect_host=args.webhdfs_redirect_host,
     )
     write_output_path_file(args.write_output_path_file, target_path)
 

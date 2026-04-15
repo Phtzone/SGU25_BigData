@@ -1,5 +1,6 @@
 .venv/
 .tmp/
+.piptemp/
 __pycache__/
 *.pyc
 *.pyo
@@ -9,3 +10,4 @@ __pycache__/
 .vscode/
 airflow/logs/
 .streamlit/secrets.toml
+awesome-codex-skills/

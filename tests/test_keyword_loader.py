@@ -1,8 +1,13 @@
 import unittest
 from datetime import date
-from io import StringIO
+from unittest.mock import patch
 
-from scripts.load_keywords_to_postgres import _ensure_date, iter_dataframe_chunks, read_keyword_batch_metadata
+from scripts.load_keywords_to_postgres import (
+    _ensure_date,
+    iter_dataframe_chunks,
+    read_keyword_batch_metadata,
+    reset_streamlit_keyword_views,
+)
 
 
 class KeywordLoaderTests(unittest.TestCase):
@@ -43,25 +48,61 @@ class KeywordLoaderTests(unittest.TestCase):
             def status(path: str, strict: bool = False):  # noqa: ARG004
                 return {"type": "FILE"}
 
-            @staticmethod
-            def read(path: str, encoding: str = "utf-8"):  # noqa: ARG004
-                return StringIO(
-                    """
-                    {
-                      "batch_path": "/news/keywords/2026/04/08/news_120000000000",
-                      "keyword_score_version": "v2",
-                      "keyword_config_hash": "abc12345"
-                    }
-                    """
-                )
-
-        metadata = read_keyword_batch_metadata(
-            hdfs_client=FakeClient(),
-            batch_path="/news/keywords/2026/04/08/news_120000000000",
-        )
+        with patch(
+            "scripts.load_keywords_to_postgres.read_hdfs_bytes",
+            return_value=(
+                b'{\n'
+                b'  "batch_path": "/news/keywords/2026/04/08/news_120000000000",\n'
+                b'  "keyword_score_version": "v2",\n'
+                b'  "keyword_config_hash": "abc12345"\n'
+                b'}'
+            ),
+        ) as read_mock:
+            metadata = read_keyword_batch_metadata(
+                hdfs_client=FakeClient(),
+                batch_path="/news/keywords/2026/04/08/news_120000000000",
+                hdfs_url="http://namenode:9870",
+                hdfs_user="root",
+                redirect_host="datanode",
+            )
 
         self.assertEqual(metadata["keyword_score_version"], "v2")
         self.assertEqual(metadata["keyword_config_hash"], "abc12345")
+        read_mock.assert_called_once_with(
+            hdfs_url="http://namenode:9870",
+            hdfs_user="root",
+            path="/news/keywords/2026/04/08/news_120000000000/_keyword_metadata.json",
+            redirect_host="datanode",
+        )
+
+    def test_reset_streamlit_keyword_views_drops_views_in_dependency_order(self) -> None:
+        executed_queries: list[str] = []
+
+        class FakeCursor:
+            def execute(self, query, params=None):  # noqa: ARG002
+                executed_queries.append(str(query).strip())
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeConnection:
+            @staticmethod
+            def cursor():
+                return FakeCursor()
+
+        reset_streamlit_keyword_views(FakeConnection())
+
+        self.assertEqual(
+            executed_queries,
+            [
+                "DROP VIEW IF EXISTS vw_streamlit_keyword_daily_overall_latest",
+                "DROP VIEW IF EXISTS vw_streamlit_keyword_daily_source_latest",
+                "DROP VIEW IF EXISTS vw_streamlit_article_keywords_latest",
+            ],
+        )
 
 
 if __name__ == "__main__":

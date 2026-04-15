@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -14,8 +14,36 @@ REFRESH_STATE_DEFAULTS = {
 }
 
 
+def local_now(timezone_name: str) -> datetime:
+    return datetime.now(ZoneInfo(timezone_name))
+
+
 def local_today(timezone_name: str) -> date:
-    return datetime.now(ZoneInfo(timezone_name)).date()
+    return local_now(timezone_name).date()
+
+
+def default_date_window(today: date, *, days: int = 7) -> tuple[date, date]:
+    normalized_days = max(int(days), 1)
+    return today - timedelta(days=normalized_days - 1), today
+
+
+def summarize_today_article_availability(
+    *,
+    today: date,
+    latest_event_date: object,
+    today_article_count: int,
+) -> dict[str, object]:
+    normalized_today_count = max(int(today_article_count), 0)
+    return {
+        "today": today,
+        "today_row_count": normalized_today_count,
+        "latest_event_date": latest_event_date,
+        "show_empty_today_state": normalized_today_count == 0,
+    }
+
+
+def is_refresh_configured(config: dict[str, object]) -> bool:
+    return all(str(config.get(field, "")).strip() for field in ("base_url", "username", "password"))
 
 
 def evaluate_today_data(*, dataframe: pd.DataFrame, today: date) -> dict[str, object]:

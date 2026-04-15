@@ -5,11 +5,9 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-COPY requirements.txt /tmp/requirements.txt
 COPY requirements-dashboard.txt /tmp/requirements-dashboard.txt
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt && \
     pip install --no-cache-dir -r /tmp/requirements-dashboard.txt
 
 COPY . /app

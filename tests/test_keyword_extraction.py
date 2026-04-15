@@ -1,6 +1,7 @@
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from Spark_jobs.extract_news_keywords import (
     DEFAULT_KEYWORD_SETTINGS,
@@ -15,6 +16,7 @@ from Spark_jobs.extract_news_keywords import (
     score_keywords_for_article,
     split_candidate_token_segments,
     tokenize_keyword_text,
+    write_keyword_metadata,
 )
 
 
@@ -194,6 +196,33 @@ class KeywordExtractionTests(unittest.TestCase):
         )
 
         self.assertEqual(hash_1, hash_2)
+
+    def test_write_keyword_metadata_uses_redirect_aware_upload(self) -> None:
+        metadata_payload = {
+            "batch_path": "/news/curated/2026/04/14/news_073417975178",
+            "keyword_output_path": "/news/keywords/2026/04/14/news_073417975178",
+            "keyword_score_version": "v2",
+            "keyword_config_hash": "abc12345",
+        }
+
+        with patch("Spark_jobs.extract_news_keywords.upload_hdfs_bytes") as upload_mock:
+            write_keyword_metadata(
+                hdfs_url="http://namenode:9870",
+                hdfs_user="root",
+                output_path="/news/keywords/2026/04/14/news_073417975178",
+                metadata_payload=metadata_payload,
+                redirect_host="datanode",
+            )
+
+        upload_mock.assert_called_once_with(
+            hdfs_url="http://namenode:9870",
+            hdfs_user="root",
+            path="/news/keywords/2026/04/14/news_073417975178/_keyword_metadata.json",
+            data=json.dumps(metadata_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            redirect_host="datanode",
+            overwrite=True,
+            content_type="application/json",
+        )
 
 
 if __name__ == "__main__":

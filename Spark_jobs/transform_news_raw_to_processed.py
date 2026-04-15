@@ -14,6 +14,7 @@ from common.hdfs_utils import (
     resolve_latest_hdfs_file,
 )
 from common.logging_utils import configure_logging, log_event
+from common.pipeline_paths import write_output_path_file
 
 COMMON_JAVA_HOME_CANDIDATES = (
     "/usr/lib/jvm/default-java",
@@ -71,15 +72,6 @@ def build_processed_output_path(input_path: str, output_base_path: str) -> str:
     year, month, day, filename = input_parts[-4:]
     batch_name = PurePosixPath(filename).stem
     return str(PurePosixPath(output_base_path, year, month, day, batch_name))
-
-
-def write_output_path_file(path_file: str, output_path: str) -> None:
-    if not path_file.strip():
-        return
-
-    path = Path(path_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(output_path + "\n", encoding="utf-8")
 
 
 def is_valid_java_home(java_home: str | Path) -> bool:

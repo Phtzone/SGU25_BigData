@@ -3,16 +3,20 @@ from __future__ import annotations
 import argparse
 import os
 import time
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
-    list_hdfs_files,
     resolve_explicit_or_latest_path,
 )
 from common.logging_utils import configure_logging, log_event
+from common.pipeline_paths import (
+    resolve_batch_from_parquet_path,
+    resolve_latest_parquet_batch,
+    write_output_path_file,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,19 +57,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_latest_processed_batch(client, path: str) -> str:
-    status = client.status(path, strict=False)
-    if not status:
-        raise SystemExit(f"HDFS path does not exist: {path}")
-
-    if status["type"] == "FILE":
-        return str(PurePosixPath(path).parent)
-
-    parquet_files = [item for item in list_hdfs_files(client, path) if item[0].endswith(".parquet")]
-    if not parquet_files:
-        raise SystemExit(f"No processed Parquet files found under {path}")
-
-    latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
-    return str(PurePosixPath(latest_parquet).parent)
+    return resolve_latest_parquet_batch(
+        client,
+        path,
+        batch_from_parquet=lambda parquet_path: resolve_batch_from_parquet_path(
+            parquet_path,
+            parents_up_if_unpartitioned=1,
+        ),
+        missing_status_message="HDFS path does not exist: {path}",
+        missing_parquet_message="No processed Parquet files found under {path}",
+    )
 
 
 def build_curated_output_path(processed_batch_path: str, output_base_path: str) -> str:
@@ -75,15 +76,6 @@ def build_curated_output_path(processed_batch_path: str, output_base_path: str) 
 
     year, month, day, batch_name = input_parts[-4:]
     return str(PurePosixPath(output_base_path, year, month, day, batch_name))
-
-
-def write_output_path_file(path_file: str, output_path: str) -> None:
-    if not path_file.strip():
-        return
-
-    path = Path(path_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(output_path + "\n", encoding="utf-8")
 
 
 def transform_hdfs_processed_to_curated(

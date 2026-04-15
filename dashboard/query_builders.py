@@ -140,6 +140,24 @@ def build_keyword_metrics_query(
     return query, params
 
 
+def build_today_article_summary_query(
+    *,
+    today: date,
+    sources: Iterable[str],
+) -> tuple[str, list[Any]]:
+    filters: list[str] = []
+    params: list[Any] = [today]
+    append_in_filter(filters, params, column_name="source", values=sources)
+    query = f"""
+        SELECT
+            MAX(event_date) AS latest_event_date,
+            COALESCE(SUM(CASE WHEN event_date = %s THEN article_count ELSE 0 END), 0) AS today_article_count
+        FROM mart_news_daily_source
+        {compose_where_clause(filters)}
+    """
+    return query, params
+
+
 def build_overall_keyword_trends_query(
     *,
     date_from: date | None,

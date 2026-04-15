@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import psycopg2
@@ -17,6 +18,7 @@ try:
         build_breakout_keywords_query,
         build_keyword_detail_query,
         build_keyword_metrics_query,
+        build_today_article_summary_query,
         build_keyword_source_compare_query,
         build_keyword_timeseries_query,
         build_overall_keyword_trends_query,
@@ -27,8 +29,12 @@ try:
     from dashboard.refresh_state import (
         REFRESH_STATE_DEFAULTS,
         build_refresh_status_message,
+        default_date_window,
         evaluate_today_data,
+        is_refresh_configured,
+        local_now,
         local_today,
+        summarize_today_article_availability,
     )
 except ModuleNotFoundError:
     from airflow_client import AirflowApiClient, AirflowApiError
@@ -38,6 +44,7 @@ except ModuleNotFoundError:
         build_breakout_keywords_query,
         build_keyword_detail_query,
         build_keyword_metrics_query,
+        build_today_article_summary_query,
         build_keyword_source_compare_query,
         build_keyword_timeseries_query,
         build_overall_keyword_trends_query,
@@ -48,8 +55,12 @@ except ModuleNotFoundError:
     from refresh_state import (
         REFRESH_STATE_DEFAULTS,
         build_refresh_status_message,
+        default_date_window,
         evaluate_today_data,
+        is_refresh_configured,
+        local_now,
         local_today,
+        summarize_today_article_availability,
     )
 
 
@@ -175,7 +186,7 @@ def ensure_refresh_state() -> None:
 
 def get_airflow_client() -> AirflowApiClient:
     config = airflow_config()
-    if not config["username"] or not config["password"]:
+    if not is_refresh_configured(config):
         raise AirflowApiError("Missing Airflow credentials.")
     return AirflowApiClient(**config)
 
@@ -183,7 +194,9 @@ def get_airflow_client() -> AirflowApiClient:
 def format_refresh_timestamp(value: datetime | None) -> str:
     if value is None:
         return "None"
-    return value.strftime("%Y-%m-%d %H:%M:%S")
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo(APP_TIMEZONE))
+    return value.astimezone(ZoneInfo(APP_TIMEZONE)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def trigger_refresh() -> None:
@@ -191,7 +204,7 @@ def trigger_refresh() -> None:
     result = client.trigger_dag_run("news_pipeline")
     st.session_state["active_dag_run_id"] = result["dag_run_id"]
     st.session_state["refresh_status"] = (result.get("state") or "queued").lower()
-    st.session_state["last_triggered_at"] = datetime.now()
+    st.session_state["last_triggered_at"] = local_now(APP_TIMEZONE)
     st.session_state["refresh_error"] = None
 
 
@@ -205,7 +218,7 @@ def poll_refresh_status() -> None:
     state = (result.get("state") or "queued").lower()
     st.session_state["refresh_status"] = state
     if state == "success":
-        st.session_state["last_successful_refresh_at"] = datetime.now()
+        st.session_state["last_successful_refresh_at"] = local_now(APP_TIMEZONE)
         st.session_state["active_dag_run_id"] = None
         st.session_state["refresh_error"] = None
         st.cache_data.clear()
@@ -215,26 +228,24 @@ def poll_refresh_status() -> None:
 
 def fetch_today_summary(filters: dict[str, Any]) -> dict[str, Any]:
     today = local_today(APP_TIMEZONE)
-    query, params = build_keyword_metrics_query(
-        date_from=today,
-        date_to=today,
+    query, params = build_today_article_summary_query(
+        today=today,
         sources=filters["sources"],
-        ngram_sizes=filters["ngram_sizes"],
-        keyword_search="",
     )
-    metrics_df = run_dataframe_query(query, tuple(params))
-    if metrics_df.empty:
-        return evaluate_today_data(dataframe=pd.DataFrame(), today=today)
+    summary_df = run_dataframe_query(query, tuple(params))
+    if summary_df.empty:
+        return summarize_today_article_availability(
+            today=today,
+            latest_event_date=None,
+            today_article_count=0,
+        )
 
-    metrics_row = metrics_df.iloc[0]
-    latest_event_date = metrics_row.get("latest_event_date")
-    today_row_count = int(metrics_row.get("keyword_rows") or 0)
-    return {
-        "today": today,
-        "today_row_count": today_row_count,
-        "latest_event_date": latest_event_date,
-        "show_empty_today_state": today_row_count == 0,
-    }
+    summary_row = summary_df.iloc[0]
+    return summarize_today_article_availability(
+        today=today,
+        latest_event_date=summary_row.get("latest_event_date"),
+        today_article_count=int(summary_row.get("today_article_count") or 0),
+    )
 
 
 def render_refresh_status_panel(
@@ -242,7 +253,9 @@ def render_refresh_status_panel(
     metrics: pd.Series | None,
 ) -> None:
     today_summary = fetch_today_summary(filters)
-    latest_event_date = metrics.get("latest_event_date") if metrics is not None else None
+    latest_event_date = today_summary.get("latest_event_date")
+    if latest_event_date is None and metrics is not None:
+        latest_event_date = metrics.get("latest_event_date")
     st.caption(
         build_refresh_status_message(
             refresh_status=str(st.session_state.get("refresh_status", "idle")),
@@ -269,13 +282,14 @@ def render_refresh_status_panel(
 
 
 def sidebar_filters() -> dict[str, Any]:
-    today = date.today()
-    default_start = today - timedelta(days=6)
+    today = local_today(APP_TIMEZONE)
+    default_start, default_end = default_date_window(today, days=7)
+    refresh_configured = is_refresh_configured(airflow_config())
 
     with st.sidebar:
         st.header("Filters")
         date_from = st.date_input("Start date", value=default_start)
-        date_to = st.date_input("End date", value=today)
+        date_to = st.date_input("End date", value=default_end)
         if date_from > date_to:
             date_from, date_to = date_to, date_from
 
@@ -302,13 +316,18 @@ def sidebar_filters() -> dict[str, Any]:
         title_search = st.text_input("Article title contains", value="")
 
         refresh_active = st.session_state.get("active_dag_run_id") is not None
-        if st.button("Refresh today's data", width="stretch", disabled=refresh_active):
+        refresh_disabled = refresh_active or not refresh_configured
+        if st.button("Refresh today's data", width="stretch", disabled=refresh_disabled):
             try:
                 trigger_refresh()
                 st.rerun()
             except AirflowApiError as exc:
                 st.session_state["refresh_status"] = "failed"
                 st.session_state["refresh_error"] = str(exc)
+        if not refresh_configured:
+            st.caption(
+                "Refresh unavailable until AIRFLOW_API_URL, AIRFLOW_USERNAME, and AIRFLOW_PASSWORD are configured."
+            )
 
     return {
         "date_from": date_from,

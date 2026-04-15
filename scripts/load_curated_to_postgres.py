@@ -4,17 +4,16 @@ import argparse
 import os
 import time
 from datetime import date, datetime, timezone
-from pathlib import PurePosixPath
 from typing import Any
 
 from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
-    list_hdfs_files,
     resolve_explicit_or_latest_path,
 )
 from common.logging_utils import configure_logging, log_event
+from common.pipeline_paths import resolve_batch_from_parquet_path, resolve_latest_parquet_batch
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,34 +60,21 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_curated_batch_from_parquet(parquet_path: str) -> str:
-    path = PurePosixPath(parquet_path)
-    parts = path.parts
-
-    for index, part in enumerate(parts):
-        if part.startswith("event_date="):
-            if index == 0:
-                break
-            return str(PurePosixPath(*parts[:index]))
-
-    return str(path.parent)
+    return resolve_batch_from_parquet_path(
+        parquet_path,
+        partition_prefixes=("event_date=",),
+        parents_up_if_unpartitioned=1,
+    )
 
 
 def resolve_latest_curated_batch(client: Any, path: str) -> str:
-    status = client.status(path, strict=False)
-    if not status:
-        raise SystemExit(f"HDFS path does not exist: {path}")
-
-    if status["type"] == "FILE":
-        if not path.endswith(".parquet"):
-            raise SystemExit(f"Expected a Parquet file but got: {path}")
-        return resolve_curated_batch_from_parquet(path)
-
-    parquet_files = [item for item in list_hdfs_files(client, path) if item[0].endswith(".parquet")]
-    if not parquet_files:
-        raise SystemExit(f"No curated Parquet files found under {path}")
-
-    latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
-    return resolve_curated_batch_from_parquet(latest_parquet)
+    return resolve_latest_parquet_batch(
+        client,
+        path,
+        batch_from_parquet=resolve_curated_batch_from_parquet,
+        missing_status_message="HDFS path does not exist: {path}",
+        missing_parquet_message="No curated Parquet files found under {path}",
+    )
 
 
 def _ensure_utc_datetime(value: Any) -> datetime:

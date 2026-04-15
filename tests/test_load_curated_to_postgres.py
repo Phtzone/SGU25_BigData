@@ -25,7 +25,7 @@ class LoadCuratedToPostgresTests(unittest.TestCase):
                 return {"type": "DIRECTORY"}
 
         with patch(
-            "scripts.load_curated_to_postgres.list_hdfs_files",
+            "common.pipeline_paths.list_hdfs_files",
             return_value=[
                 (
                     "/news/curated/2026/04/03/news_100000000000/event_date=2026-04-03/source=VNExpress/part-0000.parquet",

@@ -1,6 +1,7 @@
 feedparser
 kafka-python
 hdfs
+pandas
 requests
 psycopg2-binary
 pyspark==4.0.0

@@ -6,6 +6,7 @@ from dashboard.query_builders import (
     build_breakout_keywords_query,
     build_keyword_detail_query,
     build_keyword_metrics_query,
+    build_today_article_summary_query,
     build_keyword_source_compare_query,
     build_keyword_timeseries_query,
     build_overall_keyword_trends_query,
@@ -105,6 +106,17 @@ class DashboardQueryBuilderTests(unittest.TestCase):
         self.assertIn("STRING_AGG(DISTINCT keyword_score_version", query)
         self.assertIn("FROM vw_streamlit_keyword_daily_source_latest", query)
         self.assertEqual(params, ["Tuoi Tre", 2, 3, "%keyword%"])
+
+    def test_today_article_summary_query_targets_article_mart(self) -> None:
+        query, params = build_today_article_summary_query(
+            today=date(2026, 4, 14),
+            sources=["VNExpress", "VTV"],
+        )
+
+        self.assertIn("FROM mart_news_daily_source", query)
+        self.assertIn("SUM(CASE WHEN event_date = %s THEN article_count ELSE 0 END)", query)
+        self.assertIn("source IN (%s, %s)", query)
+        self.assertEqual(params, [date(2026, 4, 14), "VNExpress", "VTV"])
 
     def test_timeseries_query_builds_top_keyword_cte(self) -> None:
         query, params = build_keyword_timeseries_query(
