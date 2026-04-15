@@ -230,6 +230,8 @@ The keyword extractor now uses:
 
 Each keyword batch also writes `_keyword_metadata.json` with:
 
+- `batch_path`
+- `keyword_output_path`
 - `keyword_score_version`
 - `keyword_config_hash`
 
@@ -250,7 +252,8 @@ By default this script upserts into:
 - `ods_news_articles`
 - `mart_news_daily_source`
 
-The loader is idempotent per curated batch path and tracks loaded batches in `analytics_load_history`.
+The loader now tracks a deterministic fingerprint per curated batch in `analytics_load_history`.
+If the same `batch_path` is regenerated with different Parquet contents, the loader reloads it instead of silently skipping it.
 
 Load the latest keyword batch into analytics PostgreSQL:
 
@@ -461,7 +464,9 @@ Data quality metrics are logged during producer fetch, Kafka consumption, Spark 
 - articles by `source`
 - warning alert when a configured source returns `0` articles
 
-Kafka messages are now published with the normalized article link as the message key. Invalid consumed messages are routed to the `news_dead_letter` topic with validation errors and payload context.
+Kafka messages are now published with the normalized article link as the message key.
+Ingress validation is strict: payloads with missing required fields, invalid datetimes, or unexpected contract fields are rejected instead of being silently normalized into valid records.
+Invalid consumed messages are routed to the `news_dead_letter` topic with validation errors and payload context.
 
 ## Airflow Phase
 

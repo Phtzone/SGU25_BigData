@@ -117,7 +117,7 @@ def read_keyword_batch_metadata(
     if not isinstance(payload, dict):
         raise SystemExit(f"Keyword batch metadata file is invalid JSON object: {metadata_path}")
 
-    required_fields = ("batch_path", "keyword_score_version", "keyword_config_hash")
+    required_fields = ("batch_path", "keyword_output_path", "keyword_score_version", "keyword_config_hash")
     missing_fields = [field for field in required_fields if not str(payload.get(field, "")).strip()]
     if missing_fields:
         raise SystemExit(

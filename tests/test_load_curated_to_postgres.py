@@ -1,10 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from scripts.load_curated_to_postgres import (
-    resolve_curated_batch_from_parquet,
-    resolve_latest_curated_batch,
-)
+import scripts.load_curated_to_postgres as curated_loader
+from scripts.load_curated_to_postgres import resolve_curated_batch_from_parquet, resolve_latest_curated_batch
 
 
 class LoadCuratedToPostgresTests(unittest.TestCase):
@@ -40,6 +38,76 @@ class LoadCuratedToPostgresTests(unittest.TestCase):
             batch_path = resolve_latest_curated_batch(FakeClient(), "/news/curated")
 
         self.assertEqual(batch_path, "/news/curated/2026/04/04/news_120000000000")
+
+    def test_build_curated_batch_fingerprint_uses_sorted_file_metadata(self) -> None:
+        self.assertTrue(
+            hasattr(curated_loader, "build_curated_batch_fingerprint"),
+            "build_curated_batch_fingerprint should exist",
+        )
+        fingerprint = curated_loader.build_curated_batch_fingerprint(  # type: ignore[attr-defined]
+            [
+                (
+                    "/news/curated/2026/04/04/news_120000000000/part-0001.parquet",
+                    {"length": 20, "modificationTime": 200},
+                ),
+                (
+                    "/news/curated/2026/04/04/news_120000000000/part-0000.parquet",
+                    {"length": 10, "modificationTime": 100},
+                ),
+            ],
+            batch_path="/news/curated/2026/04/04/news_120000000000",
+        )
+
+        self.assertTrue(fingerprint)
+
+    def test_should_skip_curated_batch_load_only_when_path_and_fingerprint_match(self) -> None:
+        self.assertTrue(
+            hasattr(curated_loader, "should_skip_curated_batch_load"),
+            "should_skip_curated_batch_load should exist",
+        )
+        should_skip_curated_batch_load = curated_loader.should_skip_curated_batch_load  # type: ignore[attr-defined]
+
+        self.assertTrue(
+            should_skip_curated_batch_load(
+                loaded_batch_metadata={"batch_path": "/news/curated/a", "batch_fingerprint": "abc123"},
+                batch_path="/news/curated/a",
+                batch_fingerprint="abc123",
+            )
+        )
+        self.assertFalse(
+            should_skip_curated_batch_load(
+                loaded_batch_metadata={"batch_path": "/news/curated/a", "batch_fingerprint": "abc123"},
+                batch_path="/news/curated/a",
+                batch_fingerprint="zzz999",
+            )
+        )
+
+    def test_iter_dataframe_chunks_splits_rows_by_chunk_size(self) -> None:
+        self.assertTrue(
+            hasattr(curated_loader, "iter_dataframe_chunks"),
+            "iter_dataframe_chunks should exist",
+        )
+
+        class FakeRow:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def asDict(self, recursive: bool = True):  # noqa: ARG002
+                return self.payload
+
+        class FakeDataFrame:
+            @staticmethod
+            def toLocalIterator():
+                return iter(
+                    [
+                        FakeRow({"id": 1}),
+                        FakeRow({"id": 2}),
+                        FakeRow({"id": 3}),
+                    ]
+                )
+
+        chunks = list(curated_loader.iter_dataframe_chunks(FakeDataFrame(), 2))  # type: ignore[attr-defined]
+        self.assertEqual(chunks, [[{"id": 1}, {"id": 2}], [{"id": 3}]])
 
 
 if __name__ == "__main__":

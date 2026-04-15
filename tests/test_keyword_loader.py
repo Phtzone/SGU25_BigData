@@ -53,6 +53,7 @@ class KeywordLoaderTests(unittest.TestCase):
             return_value=(
                 b'{\n'
                 b'  "batch_path": "/news/keywords/2026/04/08/news_120000000000",\n'
+                b'  "keyword_output_path": "/news/keywords/2026/04/08/news_120000000000",\n'
                 b'  "keyword_score_version": "v2",\n'
                 b'  "keyword_config_hash": "abc12345"\n'
                 b'}'

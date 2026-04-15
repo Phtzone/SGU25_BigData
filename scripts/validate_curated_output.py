@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 
 from common.hdfs_utils import list_hdfs_files
 from common.logging_utils import configure_logging, log_event
+from common.pipeline_paths import resolve_batch_from_parquet_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,10 +24,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_batch_path(latest_parquet: str) -> str:
-    path = PurePosixPath(latest_parquet)
-    if len(path.parents) < 3:
-        raise SystemExit(f"Unexpected curated file layout: {latest_parquet}")
-    return str(path.parents[2])
+    return resolve_batch_from_parquet_path(
+        latest_parquet,
+        partition_prefixes=("event_date=", "source="),
+        parents_up_if_unpartitioned=1,
+    )
 
 
 def main() -> None:
@@ -47,12 +49,15 @@ def main() -> None:
         raise SystemExit(f"No curated Parquet files found under {args.path}")
 
     latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
-    latest_batch = resolve_batch_path(latest_parquet)
     partitions = {
         str(PurePosixPath(item[0]).parent)
         for item in parquet_files
         if "event_date=" in item[0] and "source=" in item[0]
     }
+    if not partitions:
+        raise SystemExit("Curated batch is missing partition-style layout for event_date and source.")
+
+    latest_batch = resolve_batch_path(latest_parquet)
     payload = {
         "path": args.path,
         "parquet_file_count": len(parquet_files),

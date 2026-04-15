@@ -1,5 +1,6 @@
 import unittest
 
+import common.article_schema as article_schema
 from common.article_schema import build_article_record, normalize_article_record, validate_article_record
 
 
@@ -72,6 +73,26 @@ class ArticleSchemaTests(unittest.TestCase):
         self.assertIn("source is required", errors)
         self.assertIn("fetched_at is required", errors)
         self.assertIn("ingestion_id is required", errors)
+
+    def test_validate_original_article_record_rejects_unexpected_fields(self) -> None:
+        self.assertTrue(
+            hasattr(article_schema, "validate_original_article_record"),
+            "validate_original_article_record should exist",
+        )
+        errors = article_schema.validate_original_article_record(  # type: ignore[attr-defined]
+            {
+                "title": "Hello",
+                "link": "https://example.com",
+                "summary": "World",
+                "published_at": "2026-03-28T12:34:56+00:00",
+                "source": "VNExpress",
+                "fetched_at": "2026-03-28T12:35:00+00:00",
+                "ingestion_id": "ing-001",
+                "extra_field": "should-fail",
+            }
+        )
+
+        self.assertIn("unexpected fields: extra_field", errors)
 
 
 if __name__ == "__main__":

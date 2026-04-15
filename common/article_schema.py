@@ -119,5 +119,34 @@ def validate_article_record(article: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_original_article_record(article: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+
+    missing_fields = [field for field in ARTICLE_FIELDS if field not in article]
+    if missing_fields:
+        errors.append(f"missing fields: {', '.join(missing_fields)}")
+
+    unexpected_fields = [field for field in article if field not in ARTICLE_FIELDS]
+    if unexpected_fields:
+        errors.append(f"unexpected fields: {', '.join(sorted(unexpected_fields))}")
+
+    normalized = normalize_article_record(article)
+    for field in REQUIRED_TEXT_FIELDS:
+        if not normalized[field]:
+            errors.append(f"{field} is required")
+
+    for field in REQUIRED_DATETIME_FIELDS:
+        if normalized[field]:
+            continue
+
+        original_value = normalize_text(article.get(field))
+        if not original_value:
+            errors.append(f"{field} is required")
+        else:
+            errors.append(f"{field} must be a valid datetime")
+
+    return errors
+
+
 def is_valid_article_record(article: dict[str, Any]) -> bool:
     return not validate_article_record(article)

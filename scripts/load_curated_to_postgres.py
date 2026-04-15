@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import time
 from datetime import date, datetime, timezone
@@ -10,6 +12,7 @@ from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
+    list_hdfs_files,
     resolve_explicit_or_latest_path,
 )
 from common.logging_utils import configure_logging, log_event
@@ -91,41 +94,78 @@ def _ensure_date(value: Any) -> date:
     raise ValueError(f"Expected date value, got {type(value).__name__}")
 
 
-def extract_curated_rows(*, input_uri: str, app_name: str) -> list[dict[str, Any]]:
+def build_curated_batch_fingerprint(
+    files: list[tuple[str, dict[str, Any]]],
+    *,
+    batch_path: str,
+) -> str:
+    batch_prefix = batch_path.rstrip("/") + "/"
+    payload = [
+        {
+            "relative_path": path.removeprefix(batch_prefix),
+            "length": metadata.get("length", 0),
+            "modification_time": metadata.get("modificationTime", 0),
+        }
+        for path, metadata in sorted(files, key=lambda item: item[0])
+    ]
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def should_skip_curated_batch_load(
+    *,
+    loaded_batch_metadata: dict[str, Any] | None,
+    batch_path: str,
+    batch_fingerprint: str,
+) -> bool:
+    if loaded_batch_metadata is None:
+        return False
+
+    return (
+        loaded_batch_metadata.get("batch_path") == batch_path
+        and str(loaded_batch_metadata.get("batch_fingerprint", "")) == batch_fingerprint
+    )
+
+
+def iter_dataframe_chunks(dataframe: Any, chunk_size: int):
+    chunk: list[dict[str, Any]] = []
+    for row in dataframe.toLocalIterator():
+        chunk.append(row.asDict(recursive=True))
+        if len(chunk) >= chunk_size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
+
+
+def build_curated_dataframe(*, input_uri: str, app_name: str) -> tuple[Any, Any]:
     from pyspark.sql import functions as F
 
     spark = create_spark_session(app_name)
-    curated_df = None
-    try:
-        curated_df = (
-            spark.read.parquet(input_uri)
-            .select(
-                F.trim(F.coalesce(F.col("title"), F.lit(""))).alias("title"),
-                F.trim(F.coalesce(F.col("link"), F.lit(""))).alias("link"),
-                F.trim(F.coalesce(F.col("summary"), F.lit(""))).alias("summary"),
-                F.trim(F.coalesce(F.col("source"), F.lit(""))).alias("source"),
-                F.trim(F.coalesce(F.col("ingestion_id"), F.lit(""))).alias("ingestion_id"),
-                F.col("published_at").cast("timestamp").alias("published_at"),
-                F.col("fetched_at").cast("timestamp").alias("fetched_at"),
-                F.col("event_date").cast("date").alias("event_date"),
-            )
-            .where(
-                (F.col("title") != "")
-                & (F.col("link") != "")
-                & (F.col("source") != "")
-                & (F.col("ingestion_id") != "")
-                & F.col("published_at").isNotNull()
-                & F.col("fetched_at").isNotNull()
-                & F.col("event_date").isNotNull()
-            )
-            .dropDuplicates(["link"])
-        ).persist()
-
-        return [row.asDict(recursive=True) for row in curated_df.collect()]
-    finally:
-        if curated_df is not None:
-            curated_df.unpersist()
-        spark.stop()
+    curated_df = (
+        spark.read.parquet(input_uri)
+        .select(
+            F.trim(F.coalesce(F.col("title"), F.lit(""))).alias("title"),
+            F.trim(F.coalesce(F.col("link"), F.lit(""))).alias("link"),
+            F.trim(F.coalesce(F.col("summary"), F.lit(""))).alias("summary"),
+            F.trim(F.coalesce(F.col("source"), F.lit(""))).alias("source"),
+            F.trim(F.coalesce(F.col("ingestion_id"), F.lit(""))).alias("ingestion_id"),
+            F.col("published_at").cast("timestamp").alias("published_at"),
+            F.col("fetched_at").cast("timestamp").alias("fetched_at"),
+            F.col("event_date").cast("date").alias("event_date"),
+        )
+        .where(
+            (F.col("title") != "")
+            & (F.col("link") != "")
+            & (F.col("source") != "")
+            & (F.col("ingestion_id") != "")
+            & F.col("published_at").isNotNull()
+            & F.col("fetched_at").isNotNull()
+            & F.col("event_date").isNotNull()
+        )
+        .dropDuplicates(["link"])
+    )
+    return spark, curated_df
 
 
 def connect_to_postgres(args: argparse.Namespace) -> Any:
@@ -156,6 +196,7 @@ def ensure_analytics_tables(
                 """
                 CREATE TABLE IF NOT EXISTS {history_table} (
                     batch_path TEXT PRIMARY KEY,
+                    batch_fingerprint TEXT,
                     row_count INTEGER NOT NULL,
                     loaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -209,20 +250,45 @@ def ensure_analytics_tables(
                 """
             ).format(mart_table=sql.Identifier(mart_table))
         )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {history_table} ADD COLUMN IF NOT EXISTS batch_fingerprint TEXT").format(
+                history_table=sql.Identifier(history_table)
+            )
+        )
     connection.commit()
 
 
-def is_batch_loaded(*, connection: Any, history_table: str, batch_path: str) -> bool:
+def get_loaded_batch_metadata(
+    *,
+    connection: Any,
+    history_table: str,
+    batch_path: str,
+) -> dict[str, Any] | None:
     from psycopg2 import sql
 
     with connection.cursor() as cursor:
         cursor.execute(
-            sql.SQL("SELECT 1 FROM {history_table} WHERE batch_path = %s LIMIT 1").format(
+            sql.SQL(
+                """
+                SELECT batch_path, batch_fingerprint, row_count, loaded_at
+                FROM {history_table}
+                WHERE batch_path = %s
+                LIMIT 1
+                """
+            ).format(
                 history_table=sql.Identifier(history_table)
             ),
             (batch_path,),
         )
-        return cursor.fetchone() is not None
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "batch_path": row[0],
+            "batch_fingerprint": row[1],
+            "row_count": row[2],
+            "loaded_at": row[3],
+        }
 
 
 def upsert_ods_rows(
@@ -280,6 +346,27 @@ def upsert_ods_rows(
         execute_values(cursor, query.as_string(connection), values, page_size=1000)
 
     return len(values)
+
+
+def upsert_ods_row_chunks(
+    *,
+    connection: Any,
+    ods_table: str,
+    row_chunks: Any,
+) -> tuple[int, list[date]]:
+    total_rows = 0
+    event_dates: list[date] = []
+
+    for rows in row_chunks:
+        upserted_count = upsert_ods_rows(
+            connection=connection,
+            ods_table=ods_table,
+            rows=rows,
+        )
+        total_rows += upserted_count
+        event_dates.extend(_ensure_date(row["event_date"]) for row in rows)
+
+    return total_rows, event_dates
 
 
 def refresh_daily_source_mart(
@@ -341,6 +428,7 @@ def mark_batch_loaded(
     connection: Any,
     history_table: str,
     batch_path: str,
+    batch_fingerprint: str,
     row_count: int,
 ) -> None:
     from psycopg2 import sql
@@ -349,14 +437,15 @@ def mark_batch_loaded(
         cursor.execute(
             sql.SQL(
                 """
-                INSERT INTO {history_table} (batch_path, row_count, loaded_at)
-                VALUES (%s, %s, NOW())
+                INSERT INTO {history_table} (batch_path, batch_fingerprint, row_count, loaded_at)
+                VALUES (%s, %s, %s, NOW())
                 ON CONFLICT (batch_path) DO UPDATE SET
+                    batch_fingerprint = EXCLUDED.batch_fingerprint,
                     row_count = EXCLUDED.row_count,
                     loaded_at = NOW()
                 """
             ).format(history_table=sql.Identifier(history_table)),
-            (batch_path, row_count),
+            (batch_path, batch_fingerprint, row_count),
         )
 
 
@@ -397,28 +486,38 @@ def main() -> None:
             mart_table=args.mart_table,
         )
 
-        if is_batch_loaded(
+        batch_files = [item for item in list_hdfs_files(hdfs_client, batch_path) if item[0].endswith(".parquet")]
+        batch_fingerprint = build_curated_batch_fingerprint(batch_files, batch_path=batch_path)
+        loaded_batch_metadata = get_loaded_batch_metadata(
             connection=connection,
             history_table=args.batch_history_table,
             batch_path=batch_path,
+        )
+        if should_skip_curated_batch_load(
+            loaded_batch_metadata=loaded_batch_metadata,
+            batch_path=batch_path,
+            batch_fingerprint=batch_fingerprint,
         ):
             log_event(
                 logger,
                 20,
                 "analytics_load_skipped_already_loaded_batch",
                 input_path=batch_path,
+                batch_fingerprint=batch_fingerprint,
                 status="success",
                 duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
             )
             return
 
-        rows = extract_curated_rows(input_uri=input_uri, app_name=args.app_name)
-        event_dates = [_ensure_date(row["event_date"]) for row in rows]
-        upserted_count = upsert_ods_rows(
-            connection=connection,
-            ods_table=args.ods_table,
-            rows=rows,
-        )
+        spark, curated_df = build_curated_dataframe(input_uri=input_uri, app_name=args.app_name)
+        try:
+            upserted_count, event_dates = upsert_ods_row_chunks(
+                connection=connection,
+                ods_table=args.ods_table,
+                row_chunks=iter_dataframe_chunks(curated_df, 500),
+            )
+        finally:
+            spark.stop()
         refreshed_count = refresh_daily_source_mart(
             connection=connection,
             ods_table=args.ods_table,
@@ -429,6 +528,7 @@ def main() -> None:
             connection=connection,
             history_table=args.batch_history_table,
             batch_path=batch_path,
+            batch_fingerprint=batch_fingerprint,
             row_count=upserted_count,
         )
         connection.commit()

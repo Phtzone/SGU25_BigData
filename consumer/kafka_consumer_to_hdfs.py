@@ -8,7 +8,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any, TYPE_CHECKING
 
 from common.data_quality import summarize_article_quality
-from common.article_schema import normalize_article_record, normalize_text, validate_article_record
+from common.article_schema import (
+    normalize_article_record,
+    normalize_text,
+    validate_article_record,
+    validate_original_article_record,
+)
 from common.hdfs_utils import upload_hdfs_bytes
 from common.kafka_utils import create_kafka_client_with_retry
 from common.logging_utils import configure_logging, log_event
@@ -203,8 +208,10 @@ def split_rows_by_validity(
     invalid_rows: list[dict[str, Any]] = []
 
     for row in rows:
+        original_errors = validate_original_article_record(row)
         normalized = normalize_article_record(row)
-        errors = validate_article_record(normalized)
+        normalized_errors = validate_article_record(normalized)
+        errors = list(dict.fromkeys(original_errors + normalized_errors))
         if errors:
             invalid_rows.append(
                 {

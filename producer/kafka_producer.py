@@ -1,7 +1,12 @@
 import json
 from typing import Any, Dict
 
-from common.article_schema import normalize_article_record, normalize_text, validate_article_record
+from common.article_schema import (
+    normalize_article_record,
+    normalize_text,
+    validate_article_record,
+    validate_original_article_record,
+)
 from common.kafka_utils import create_kafka_client_with_retry
 
 
@@ -44,6 +49,10 @@ class NewsKafkaProducer:
         )
 
     def send_article(self, article: Dict[str, Any]) -> Dict[str, Any]:
+        original_errors = validate_original_article_record(article)
+        if original_errors:
+            raise ValueError(f"Invalid article payload for Kafka: {', '.join(original_errors)}")
+
         normalized = normalize_article_record(article)
         errors = validate_article_record(normalized)
         if errors:

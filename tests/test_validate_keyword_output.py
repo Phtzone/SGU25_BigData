@@ -44,6 +44,8 @@ class ValidateKeywordOutputTests(unittest.TestCase):
             "scripts.validate_keyword_output.read_hdfs_bytes",
             return_value=(
                 b'{\n'
+                b'  "batch_path": "/news/keywords/2026/04/14/news_073417975178",\n'
+                b'  "keyword_output_path": "/news/keywords/2026/04/14/news_073417975178",\n'
                 b'  "keyword_score_version": "v2",\n'
                 b'  "keyword_config_hash": "abc12345"\n'
                 b'}'
@@ -64,6 +66,21 @@ class ValidateKeywordOutputTests(unittest.TestCase):
             path="/news/keywords/2026/04/14/news_073417975178/_keyword_metadata.json",
             redirect_host="datanode",
         )
+
+    def test_read_keyword_metadata_requires_required_fields(self) -> None:
+        with patch(
+            "scripts.validate_keyword_output.read_hdfs_bytes",
+            return_value=b'{\n  "keyword_score_version": "v2"\n}',
+        ):
+            with self.assertRaises(SystemExit) as error:
+                read_keyword_metadata(
+                    hdfs_url="http://namenode:9870",
+                    hdfs_user="root",
+                    metadata_path="/news/keywords/2026/04/14/news/_keyword_metadata.json",
+                    redirect_host="datanode",
+                )
+
+        self.assertIn("missing required fields", str(error.exception))
 
 
 if __name__ == "__main__":

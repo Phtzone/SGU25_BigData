@@ -6,7 +6,7 @@ from consumer.kafka_consumer_to_hdfs import (
     decode_message_value,
     split_rows_by_validity,
 )
-from producer.kafka_producer import build_message_key
+from producer.kafka_producer import NewsKafkaProducer, build_message_key
 
 
 class KafkaUsageTests(unittest.TestCase):
@@ -41,6 +41,62 @@ class KafkaUsageTests(unittest.TestCase):
         self.assertEqual(len(valid_rows), 1)
         self.assertEqual(len(invalid_rows), 1)
         self.assertIn("title is required", invalid_rows[0]["errors"])
+
+    def test_split_rows_by_validity_rejects_original_payload_with_unexpected_fields(self) -> None:
+        valid_rows, invalid_rows = split_rows_by_validity(
+            [
+                {
+                    "title": "Good",
+                    "link": "https://example.com/1",
+                    "summary": "One",
+                    "published_at": "2026-03-28T08:00:00+00:00",
+                    "source": "VNExpress",
+                    "fetched_at": "2026-03-28T08:05:00+00:00",
+                    "ingestion_id": "ing-001",
+                    "extra": "boom",
+                }
+            ]
+        )
+
+        self.assertEqual(len(valid_rows), 0)
+        self.assertEqual(len(invalid_rows), 1)
+        self.assertIn("unexpected fields: extra", invalid_rows[0]["errors"])
+
+    def test_send_article_rejects_original_payload_with_unexpected_fields(self) -> None:
+        class FakeProducer:
+            def __init__(self) -> None:
+                self.sent_messages: list[tuple[str, str, dict[str, str]]] = []
+
+            def send(self, topic, key=None, value=None):  # noqa: ANN001, ANN201
+                self.sent_messages.append((topic, key, value))
+
+            def flush(self) -> None:
+                pass
+
+            def close(self) -> None:
+                pass
+
+        fake_producer = FakeProducer()
+        producer = NewsKafkaProducer.__new__(NewsKafkaProducer)
+        producer.topic = "news_raw"
+        producer.producer = fake_producer
+
+        with self.assertRaises(ValueError) as error:
+            producer.send_article(
+                {
+                    "title": "Good",
+                    "link": "https://example.com/1",
+                    "summary": "One",
+                    "published_at": "2026-03-28T08:00:00+00:00",
+                    "source": "VNExpress",
+                    "fetched_at": "2026-03-28T08:05:00+00:00",
+                    "ingestion_id": "ing-001",
+                    "extra": "boom",
+                }
+            )
+
+        self.assertIn("unexpected fields: extra", str(error.exception))
+        self.assertEqual(fake_producer.sent_messages, [])
 
     def test_build_dead_letter_message_keeps_error_context(self) -> None:
         payload = build_dead_letter_message(

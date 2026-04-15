@@ -22,6 +22,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_batch_path(latest_parquet: str) -> str:
+    path = PurePosixPath(latest_parquet)
+    if not path.parent or str(path.parent) == ".":
+        raise SystemExit(f"Unexpected processed file layout: {latest_parquet}")
+    return str(path.parent)
+
+
 def main() -> None:
     args = parse_args()
     logger = configure_logging("validate_processed") if not args.json else None
@@ -40,7 +47,7 @@ def main() -> None:
         raise SystemExit(f"No Parquet files found under {args.path}")
 
     latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
-    latest_batch = str(PurePosixPath(latest_parquet).parent)
+    latest_batch = resolve_batch_path(latest_parquet)
     payload = {
         "path": args.path,
         "parquet_file_count": len(parquet_files),

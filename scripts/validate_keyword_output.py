@@ -69,6 +69,12 @@ def read_keyword_metadata(
     )
     if not isinstance(payload, dict):
         raise SystemExit(f"Keyword metadata file is invalid JSON object: {metadata_path}")
+
+    required_fields = ("batch_path", "keyword_output_path", "keyword_score_version", "keyword_config_hash")
+    missing_fields = [field for field in required_fields if not str(payload.get(field, "")).strip()]
+    if missing_fields:
+        raise SystemExit(f"Keyword metadata file is missing required fields: {', '.join(missing_fields)}")
+
     return payload
 
 
@@ -87,11 +93,15 @@ def main() -> None:
     if not parquet_files:
         raise SystemExit(f"No keyword Parquet files found under {args.path}")
 
-    article_keyword_files = [
-        item for item in parquet_files if belongs_to_dataset(item[0], "article_keywords")
+    latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
+    latest_batch = resolve_keyword_batch_from_parquet(latest_parquet)
+    latest_batch_prefix = latest_batch.rstrip("/") + "/"
+    latest_batch_files = [
+        item for item in parquet_files if item[0].startswith(latest_batch_prefix)
     ]
+    article_keyword_files = [item for item in latest_batch_files if belongs_to_dataset(item[0], "article_keywords")]
     keyword_daily_source_files = [
-        item for item in parquet_files if belongs_to_dataset(item[0], "keyword_daily_source")
+        item for item in latest_batch_files if belongs_to_dataset(item[0], "keyword_daily_source")
     ]
     if not article_keyword_files:
         raise SystemExit("Keyword batch is missing article_keywords Parquet output.")
@@ -100,12 +110,16 @@ def main() -> None:
 
     success_markers = [item for item in files if PurePosixPath(item[0]).name == "_SUCCESS"]
     metadata_files = [item for item in files if PurePosixPath(item[0]).name == KEYWORD_METADATA_FILENAME]
-    latest_parquet = max(parquet_files, key=lambda item: item[1]["modificationTime"])[0]
-    latest_batch = resolve_keyword_batch_from_parquet(latest_parquet)
     if not metadata_files:
         raise SystemExit("Keyword batch is missing _keyword_metadata.json metadata output.")
 
-    metadata_path = max(metadata_files, key=lambda item: item[1]["modificationTime"])[0]
+    latest_batch_metadata_files = [
+        item for item in metadata_files if item[0].startswith(latest_batch_prefix)
+    ]
+    if not latest_batch_metadata_files:
+        raise SystemExit("Keyword batch is missing _keyword_metadata.json metadata output.")
+
+    metadata_path = max(latest_batch_metadata_files, key=lambda item: item[1]["modificationTime"])[0]
     metadata_payload = read_keyword_metadata(
         hdfs_url=args.hdfs_url,
         hdfs_user=args.hdfs_user,

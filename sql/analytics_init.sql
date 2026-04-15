@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS analytics_load_history (
     batch_path TEXT PRIMARY KEY,
+    batch_fingerprint TEXT,
     row_count INTEGER NOT NULL,
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
