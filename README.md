@@ -1,21 +1,65 @@
-# Real-Time News Ingestion Pipeline
+# Real-Time News Analytics Pipeline
 
-## Thành viên nhóm: 
+## Thành viên nhóm
 - 3123580051 - Phạm Hoàng Tiến
 - 3123580046 - Thạch Ngọc Thảo
 - 3123580058 - Nguyễn Thái Tú
 
-
----- Bài tập nhóm môn Big Data ----
-
 Giảng viên hướng dẫn: TS. Vũ Ngọc Thanh Sang
 
---------------------------------------
-This repository is organized around the Big Data MVP:
+This repository follows one primary pipeline flow:
 
-`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords`
+`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords -> PostgreSQL analytics -> Streamlit dashboard`
 
-Airflow orchestration is implemented as an optional Docker Compose profile on top of the working MVP stack.
+## What Is Core
+
+The core flow is:
+
+- RSS ingestion
+- Kafka publish and consume
+- HDFS raw storage
+- Spark processed and curated jobs
+- keyword extraction
+- validation scripts for each stage
+
+## What Is Optional
+
+Optional layers on top of the core flow:
+
+- Airflow orchestration
+- PostgreSQL analytics loading
+- Streamlit dashboard
+- debug and export utilities
+
+## Quick Start (Core Pipeline)
+
+1. Create and activate a WSL/Linux virtual environment.
+2. Install core dependencies:
+
+```bash
+python3 -m venv ~/venvs/sgu25_bigdata
+source ~/venvs/sgu25_bigdata/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+3. Start core infrastructure:
+
+```bash
+docker compose up -d
+```
+
+4. Create Kafka topics:
+
+```bash
+bash scripts/init_kafka_topics.sh
+```
+
+5. Run the core smoke pipeline:
+
+```bash
+bash scripts/test_pipeline.sh
+```
 
 ## Target Environment
 
@@ -140,13 +184,15 @@ This creates:
 
 ## Run the Core Pipeline
 
-Run the full end-to-end demo (one command):
+Run the core smoke path (one command):
 
 ```bash
-bash scripts/demo_end_to_end.sh
+bash scripts/test_pipeline.sh
 ```
 
-This command starts Docker services, ensures Kafka topics, runs the pipeline (`RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords`), loads curated and keyword data into PostgreSQL analytics, and prints summary outputs.
+This command is a smoke run for the upstream stages in that main flow (from RSS ingestion through keyword extraction).
+
+The remaining commands in this section are the manual step-by-step run path for those processing stages.
 
 Publish RSS items into Kafka:
 
@@ -389,25 +435,33 @@ The dashboard currently includes:
 - CSV export buttons for overall trends, breakout tables, source trends, detail views, and supporting articles
 - keyword model/version visibility from PostgreSQL view metadata
 
-You can also export a manual keyword review sample for Phase 3A tuning:
+## Optional Utilities
+
+Run the full demo with analytics loading:
+
+```bash
+bash scripts/demo_end_to_end.sh
+```
+
+Start Airflow quickly:
+
+```bash
+bash scripts/start_airflow.sh
+```
+
+Export manual keyword review rows from PostgreSQL:
 
 ```bash
 python -m scripts.export_keyword_review_sample --limit 100
 ```
 
-Run the full MVP + keyword smoke test:
-
-```bash
-bash scripts/test_pipeline.sh
-```
-
-Preview the latest HDFS file in a readable format:
+Preview the latest HDFS raw file:
 
 ```bash
 python -m scripts.preview_hdfs_data --path /news/raw --limit 5
 ```
 
-You can also preview a specific file:
+Preview a specific HDFS raw file:
 
 ```bash
 python -m scripts.preview_hdfs_data --path /news/raw/2026/03/14/news_145545123456.jsonl --limit 3
