@@ -15,6 +15,7 @@ from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
+    prepare_spark_input_output_paths,
     resolve_explicit_or_latest_path,
     upload_hdfs_bytes,
 )
@@ -181,6 +182,13 @@ def build_keyword_output_path(curated_batch_path: str, output_base_path: str) ->
 
     year, month, day, batch_name = input_parts[-4:]
     return str(PurePosixPath(output_base_path, year, month, day, batch_name))
+
+
+def build_runtime_child_output_path(base_path: str, child_name: str) -> str:
+    normalized_child_name = child_name.strip("/")
+    if "://" in base_path:
+        return f"{base_path.rstrip('/')}/{normalized_child_name}"
+    return str(Path(base_path) / normalized_child_name)
 
 
 def write_keyword_metadata(
@@ -549,8 +557,8 @@ def score_keywords_for_article(
 def extract_keywords_from_curated_batch(
     *,
     input_uri: str,
-    output_path: str,
-    hdfs_default_fs: str,
+    article_output_uri: str,
+    daily_output_uri: str,
     app_name: str,
     batch_path: str,
     settings: dict[str, Any],
@@ -738,8 +746,6 @@ def extract_keywords_from_curated_batch(
 
         keyword_daily_source_count = int(keyword_daily_source_df.count())
 
-        article_output_uri = build_hdfs_uri(f"{output_path}/article_keywords", hdfs_default_fs)
-        daily_output_uri = build_hdfs_uri(f"{output_path}/keyword_daily_source", hdfs_default_fs)
         article_keywords_df.write.mode("overwrite").parquet(article_output_uri)
         keyword_daily_source_df.write.mode("overwrite").parquet(daily_output_uri)
 
@@ -792,17 +798,26 @@ def main() -> None:
     source_uri = build_hdfs_uri(source_batch_path, args.hdfs_default_fs)
     target_uri = build_hdfs_uri(target_path, args.hdfs_default_fs)
 
-    metrics = extract_keywords_from_curated_batch(
-        input_uri=source_uri,
+    with prepare_spark_input_output_paths(
+        client=client,
+        input_path=source_batch_path,
         output_path=target_path,
+        hdfs_url=args.hdfs_url,
         hdfs_default_fs=args.hdfs_default_fs,
-        app_name=args.app_name,
-        batch_path=source_batch_path,
-        settings=settings,
-        stopwords=stopwords,
-        source_blocklist=source_blocklist,
-        keyword_config_hash=keyword_config_hash,
-    )
+        hdfs_user=args.hdfs_user,
+        redirect_host=args.webhdfs_redirect_host,
+    ) as (runtime_source_uri, runtime_target_root):
+        metrics = extract_keywords_from_curated_batch(
+            input_uri=runtime_source_uri,
+            article_output_uri=build_runtime_child_output_path(runtime_target_root, "article_keywords"),
+            daily_output_uri=build_runtime_child_output_path(runtime_target_root, "keyword_daily_source"),
+            app_name=args.app_name,
+            batch_path=source_batch_path,
+            settings=settings,
+            stopwords=stopwords,
+            source_blocklist=source_blocklist,
+            keyword_config_hash=keyword_config_hash,
+        )
     metadata_payload = {
         "batch_path": source_batch_path,
         "keyword_output_path": target_path,

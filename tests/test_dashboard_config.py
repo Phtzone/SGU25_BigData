@@ -122,6 +122,21 @@ class DashboardConfigTests(unittest.TestCase):
             },
         )
 
+    def test_resolve_config_value_falls_back_when_secrets_access_raises(self) -> None:
+        class ExplodingSecrets(dict):
+            def get(self, key, default=None):  # type: ignore[override]
+                raise RuntimeError("No secrets found.")
+
+        self.assertEqual(
+            resolve_config_value(
+                "APP_TIMEZONE",
+                "Asia/Bangkok",
+                env_resolver=lambda name, default: "UTC",
+                secrets=ExplodingSecrets(),
+            ),
+            "UTC",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

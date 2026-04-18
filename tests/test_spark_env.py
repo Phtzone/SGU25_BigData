@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from Spark_jobs.transform_news_raw_to_processed import (
+    choose_writable_spark_dir,
     ensure_java_home,
     infer_java_home_from_common_locations,
     infer_java_home_from_path,
@@ -77,6 +78,21 @@ class SparkEnvTests(unittest.TestCase):
                     ensure_java_home()
 
         self.assertIn("Java 17 is required", str(error.exception))
+
+    def test_choose_writable_spark_dir_falls_back_when_configured_dir_is_not_writable(self) -> None:
+        with patch("tempfile.mkdtemp", return_value="/tmp/spark-local-fallback"):
+            with patch.object(
+                Path,
+                "mkdir",
+                side_effect=[PermissionError("denied"), None],
+            ):
+                path = choose_writable_spark_dir(
+                    env_var_name="SPARK_LOCAL_DIR",
+                    default_dir=Path("/tmp/spark-local"),
+                    fallback_prefix="spark-local-fallback-",
+                )
+
+        self.assertEqual(path, Path("/tmp/spark-local-fallback"))
 
 
 if __name__ == "__main__":

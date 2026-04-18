@@ -9,6 +9,7 @@ from Spark_jobs.transform_news_raw_to_processed import create_spark_session
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
+    prepare_spark_input_output_paths,
     resolve_explicit_or_latest_path,
 )
 from common.logging_utils import configure_logging, log_event
@@ -164,11 +165,20 @@ def main() -> None:
     source_uri = build_hdfs_uri(source_batch_path, args.hdfs_default_fs)
     target_uri = build_hdfs_uri(target_path, args.hdfs_default_fs)
 
-    record_count, metrics = transform_hdfs_processed_to_curated(
-        input_uri=source_uri,
-        output_uri=target_uri,
-        app_name=args.app_name,
-    )
+    with prepare_spark_input_output_paths(
+        client=client,
+        input_path=source_batch_path,
+        output_path=target_path,
+        hdfs_url=args.hdfs_url,
+        hdfs_default_fs=args.hdfs_default_fs,
+        hdfs_user=args.hdfs_user,
+        redirect_host=args.webhdfs_redirect_host,
+    ) as (runtime_source_uri, runtime_target_uri):
+        record_count, metrics = transform_hdfs_processed_to_curated(
+            input_uri=runtime_source_uri,
+            output_uri=runtime_target_uri,
+            app_name=args.app_name,
+        )
     write_output_path_file(args.write_output_path_file, target_path)
 
     log_event(

@@ -7,6 +7,23 @@ from scripts.load_curated_to_postgres import resolve_curated_batch_from_parquet,
 
 
 class LoadCuratedToPostgresTests(unittest.TestCase):
+    def test_parse_args_defaults_db_port_to_5433_for_localhost_when_env_port_missing(self) -> None:
+        with patch.dict("os.environ", {"ANALYTICS_DB_HOST": "localhost", "ANALYTICS_DB_PORT": ""}, clear=False):
+            with patch("sys.argv", ["load_curated_to_postgres.py"]):
+                args = curated_loader.parse_args()
+
+        self.assertEqual(args.db_host, "localhost")
+        self.assertEqual(args.db_port, 5433)
+
+    def test_parse_args_defaults_db_port_to_5432_for_service_host_when_env_port_missing(self) -> None:
+        with patch.dict("os.environ", {"ANALYTICS_DB_HOST": "postgres-analytics"}, clear=False):
+            with patch.dict("os.environ", {"ANALYTICS_DB_PORT": ""}, clear=False):
+                with patch("sys.argv", ["load_curated_to_postgres.py"]):
+                    args = curated_loader.parse_args()
+
+        self.assertEqual(args.db_host, "postgres-analytics")
+        self.assertEqual(args.db_port, 5432)
+
     def test_resolve_curated_batch_from_partitioned_parquet_path(self) -> None:
         batch_path = resolve_curated_batch_from_parquet(
             "/news/curated/2026/04/04/news_120000000000/event_date=2026-04-04/source=VNExpress/part-0000.parquet"

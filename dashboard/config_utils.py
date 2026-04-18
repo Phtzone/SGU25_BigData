@@ -21,6 +21,13 @@ def _get_mapping_value(mapping: Mapping[str, object], key: str) -> object | None
     return None
 
 
+def _safe_get_section(secrets: Mapping[str, object], section_name: str) -> object | None:
+    try:
+        return secrets.get(section_name)
+    except Exception:
+        return None
+
+
 def resolve_config_value(
     name: str,
     default: str,
@@ -30,7 +37,7 @@ def resolve_config_value(
 ) -> str:
     if secrets is not None:
         for section_name, secret_key in SECRET_KEY_ALIASES.get(name, ()):
-            section = secrets.get(section_name)
+            section = _safe_get_section(secrets, section_name)
             if isinstance(section, Mapping):
                 value = _get_mapping_value(section, secret_key)
                 if value is not None and str(value).strip():

@@ -5,18 +5,37 @@ import json
 import os
 import time
 from datetime import date
+from pathlib import Path
 from typing import Any, Iterable
 
 from Spark_jobs.transform_news_raw_to_processed import create_spark_session
-from common.hdfs_utils import build_hdfs_uri, derive_hdfs_default_fs, read_hdfs_bytes, resolve_explicit_or_latest_path
+from common.hdfs_utils import (
+    build_hdfs_uri,
+    derive_hdfs_default_fs,
+    prepare_spark_input_path,
+    read_hdfs_bytes,
+    resolve_explicit_or_latest_path,
+)
 from common.logging_utils import configure_logging, log_event
 from scripts.validate_keyword_output import resolve_latest_keyword_batch
 
 KEYWORD_METADATA_FILENAME = "_keyword_metadata.json"
+LOCAL_ANALYTICS_DB_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def resolve_default_analytics_db_port(db_host: str) -> int:
+    configured_port = os.getenv("ANALYTICS_DB_PORT", "").strip()
+    if configured_port:
+        return int(configured_port)
+    if db_host.strip().lower() in LOCAL_ANALYTICS_DB_HOSTS:
+        return 5433
+    return 5432
 
 
 def parse_args() -> argparse.Namespace:
     default_hdfs_url = os.getenv("HDFS_URL", "http://localhost:9870")
+    default_db_host = os.getenv("ANALYTICS_DB_HOST", "localhost")
+    default_db_port = resolve_default_analytics_db_port(default_db_host)
     parser = argparse.ArgumentParser(
         description="Load keyword Parquet batches from HDFS into analytics PostgreSQL tables."
     )
@@ -43,8 +62,8 @@ def parse_args() -> argparse.Namespace:
         default="news-keywords-to-postgres",
         help="Spark application name.",
     )
-    parser.add_argument("--db-host", default=os.getenv("ANALYTICS_DB_HOST", "localhost"))
-    parser.add_argument("--db-port", type=int, default=int(os.getenv("ANALYTICS_DB_PORT", "5432")))
+    parser.add_argument("--db-host", default=default_db_host)
+    parser.add_argument("--db-port", type=int, default=default_db_port)
     parser.add_argument("--db-name", default=os.getenv("ANALYTICS_DB_NAME", "analytics"))
     parser.add_argument("--db-user", default=os.getenv("ANALYTICS_DB_USER", "analytics"))
     parser.add_argument("--db-password", default=os.getenv("ANALYTICS_DB_PASSWORD", "analytics"))
@@ -78,6 +97,13 @@ def _ensure_date(value: Any) -> date:
     if isinstance(value, date):
         return value
     raise ValueError(f"Expected date value, got {type(value).__name__}")
+
+
+def build_runtime_child_input_path(base_path: str, child_name: str) -> str:
+    normalized_child_name = child_name.strip("/")
+    if "://" in base_path:
+        return f"{base_path.rstrip('/')}/{normalized_child_name}"
+    return str(Path(base_path) / normalized_child_name)
 
 
 def connect_to_postgres(args: argparse.Namespace) -> Any:
@@ -776,8 +802,7 @@ def mark_batch_loaded(
 def load_keyword_batch_with_spark(
     *,
     connection: Any,
-    batch_path: str,
-    hdfs_default_fs: str,
+    batch_root_path: str,
     app_name: str,
     chunk_size: int,
     article_keywords_table: str,
@@ -787,7 +812,7 @@ def load_keyword_batch_with_spark(
 
     spark = create_spark_session(app_name)
     try:
-        article_keywords_uri = build_hdfs_uri(f"{batch_path}/article_keywords", hdfs_default_fs)
+        article_keywords_uri = build_runtime_child_input_path(batch_root_path, "article_keywords")
         article_keywords_df = (
             spark.read.parquet(article_keywords_uri)
             .select(
@@ -831,7 +856,7 @@ def load_keyword_batch_with_spark(
             row_chunks=iter_dataframe_chunks(article_keywords_df, chunk_size),
         )
 
-        keyword_daily_source_uri = build_hdfs_uri(f"{batch_path}/keyword_daily_source", hdfs_default_fs)
+        keyword_daily_source_uri = build_runtime_child_input_path(batch_root_path, "keyword_daily_source")
         keyword_daily_source_df = (
             spark.read.parquet(keyword_daily_source_uri)
             .select(
@@ -963,15 +988,22 @@ def main() -> None:
                 batch_path=batch_path,
             )
 
-        article_keyword_row_count, keyword_daily_source_row_count = load_keyword_batch_with_spark(
-            connection=connection,
-            batch_path=batch_path,
+        with prepare_spark_input_path(
+            client=hdfs_client,
+            input_path=batch_path,
+            hdfs_url=args.hdfs_url,
             hdfs_default_fs=args.hdfs_default_fs,
-            app_name=args.app_name,
-            chunk_size=max(args.chunk_size, 1),
-            article_keywords_table=args.article_keywords_table,
-            keyword_daily_source_table=args.keyword_daily_source_table,
-        )
+            hdfs_user=args.hdfs_user,
+            redirect_host=args.webhdfs_redirect_host,
+        ) as runtime_batch_root:
+            article_keyword_row_count, keyword_daily_source_row_count = load_keyword_batch_with_spark(
+                connection=connection,
+                batch_root_path=runtime_batch_root,
+                app_name=args.app_name,
+                chunk_size=max(args.chunk_size, 1),
+                article_keywords_table=args.article_keywords_table,
+                keyword_daily_source_table=args.keyword_daily_source_table,
+            )
 
         mark_batch_loaded(
             connection=connection,

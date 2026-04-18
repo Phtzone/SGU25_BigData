@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from common.hdfs_utils import (
     build_hdfs_uri,
     derive_hdfs_default_fs,
+    prepare_spark_input_output_paths,
     resolve_explicit_or_latest_path,
     resolve_latest_hdfs_file,
 )
@@ -146,16 +147,31 @@ def ensure_java_home() -> str:
     )
 
 
+def choose_writable_spark_dir(*, env_var_name: str, default_dir: Path, fallback_prefix: str) -> Path:
+    configured_dir = Path(os.getenv(env_var_name, str(default_dir)))
+    try:
+        configured_dir.mkdir(parents=True, exist_ok=True)
+        return configured_dir
+    except PermissionError:
+        fallback_dir = Path(tempfile.mkdtemp(prefix=fallback_prefix))
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        return fallback_dir
+
+
 def create_spark_session(app_name: str):
     from pyspark.sql import SparkSession
 
     ensure_java_home()
-    spark_local_dir = Path(os.getenv("SPARK_LOCAL_DIR", str(Path(tempfile.gettempdir()) / "spark-local")))
-    spark_warehouse_dir = Path(
-        os.getenv("SPARK_WAREHOUSE_DIR", str(Path(tempfile.gettempdir()) / "spark-warehouse"))
+    spark_local_dir = choose_writable_spark_dir(
+        env_var_name="SPARK_LOCAL_DIR",
+        default_dir=Path(tempfile.gettempdir()) / "spark-local",
+        fallback_prefix="spark-local-",
     )
-    spark_local_dir.mkdir(parents=True, exist_ok=True)
-    spark_warehouse_dir.mkdir(parents=True, exist_ok=True)
+    spark_warehouse_dir = choose_writable_spark_dir(
+        env_var_name="SPARK_WAREHOUSE_DIR",
+        default_dir=Path(tempfile.gettempdir()) / "spark-warehouse",
+        fallback_prefix="spark-warehouse-",
+    )
 
     spark = (
         SparkSession.builder.appName(app_name)
@@ -163,6 +179,10 @@ def create_spark_session(app_name: str):
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.local.dir", str(spark_local_dir))
         .config("spark.sql.warehouse.dir", spark_warehouse_dir.resolve().as_uri())
+        # In WSL/host-mode Spark, DataNode is often reachable via hostname mapping
+        # while container bridge IPs are not. Force HDFS client to prefer hostnames.
+        .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
+        .config("spark.hadoop.dfs.datanode.use.datanode.hostname", "true")
         .getOrCreate()
     )
     spark.conf.set("spark.hadoop.fs.defaultFS", os.getenv("HDFS_DEFAULT_FS", "hdfs://localhost:9000"))
@@ -291,11 +311,20 @@ def main() -> None:
     source_uri = build_hdfs_uri(source_path, args.hdfs_default_fs)
     target_uri = build_hdfs_uri(target_path, args.hdfs_default_fs)
 
-    record_count, metrics = transform_hdfs_json_to_parquet(
-        input_uri=source_uri,
-        output_uri=target_uri,
-        app_name=args.app_name,
-    )
+    with prepare_spark_input_output_paths(
+        client=client,
+        input_path=source_path,
+        output_path=target_path,
+        hdfs_url=args.hdfs_url,
+        hdfs_default_fs=args.hdfs_default_fs,
+        hdfs_user=args.hdfs_user,
+        redirect_host=args.webhdfs_redirect_host,
+    ) as (runtime_source_uri, runtime_target_uri):
+        record_count, metrics = transform_hdfs_json_to_parquet(
+            input_uri=runtime_source_uri,
+            output_uri=runtime_target_uri,
+            app_name=args.app_name,
+        )
     write_output_path_file(args.write_output_path_file, target_path)
 
     log_event(

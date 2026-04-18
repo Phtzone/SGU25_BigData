@@ -56,6 +56,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-messages", type=int, default=100)
     parser.add_argument("--poll-timeout-ms", type=int, default=5000)
     parser.add_argument(
+        "--hdfs-safe-mode-retries",
+        type=int,
+        default=int(os.getenv("HDFS_SAFE_MODE_RETRIES", "5")),
+        help="Number of retries when HDFS NameNode is in safe mode.",
+    )
+    parser.add_argument(
+        "--hdfs-safe-mode-retry-delay-seconds",
+        type=float,
+        default=float(os.getenv("HDFS_SAFE_MODE_RETRY_DELAY_SECONDS", "2")),
+        help="Initial delay (seconds) before retrying a safe-mode HDFS write.",
+    )
+    parser.add_argument(
         "--dead-letter-topic",
         default=os.getenv("KAFKA_DEAD_LETTER_TOPIC", "news_dead_letter"),
     )
@@ -254,6 +266,31 @@ def commit_processed_offsets(consumer: Any) -> None:
     consumer.commit()
 
 
+def is_hdfs_safe_mode_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return "safe mode" in message
+
+
+def make_hdfs_directory_with_retry(
+    args: argparse.Namespace,
+    client: Any,
+    directory: str,
+) -> None:
+    max_retries = max(0, int(getattr(args, "hdfs_safe_mode_retries", 0)))
+    base_delay_seconds = max(
+        0.0, float(getattr(args, "hdfs_safe_mode_retry_delay_seconds", 0.0))
+    )
+
+    for attempt in range(max_retries + 1):
+        try:
+            client.makedirs(directory)
+            return
+        except Exception as exc:
+            if not is_hdfs_safe_mode_error(exc) or attempt >= max_retries:
+                raise
+            time.sleep(base_delay_seconds * (2**attempt))
+
+
 def write_jsonl_to_hdfs(
     args: argparse.Namespace,
     client: Any,
@@ -261,7 +298,7 @@ def write_jsonl_to_hdfs(
     rows: list[dict[str, Any]],
 ) -> None:
     directory = str(PurePosixPath(output_path).parent)
-    client.makedirs(directory)
+    make_hdfs_directory_with_retry(args=args, client=client, directory=directory)
 
     payload = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows).encode("utf-8")
     upload_hdfs_bytes(

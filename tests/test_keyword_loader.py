@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
+import scripts.load_keywords_to_postgres as keyword_loader
 from scripts.load_keywords_to_postgres import (
     _ensure_date,
     iter_dataframe_chunks,
@@ -11,6 +12,22 @@ from scripts.load_keywords_to_postgres import (
 
 
 class KeywordLoaderTests(unittest.TestCase):
+    def test_parse_args_defaults_db_port_to_5433_for_localhost_when_env_port_missing(self) -> None:
+        with patch.dict("os.environ", {"ANALYTICS_DB_HOST": "localhost", "ANALYTICS_DB_PORT": ""}, clear=False):
+            with patch("sys.argv", ["load_keywords_to_postgres.py"]):
+                args = keyword_loader.parse_args()
+
+        self.assertEqual(args.db_host, "localhost")
+        self.assertEqual(args.db_port, 5433)
+
+    def test_parse_args_defaults_db_port_to_5432_for_service_host_when_env_port_missing(self) -> None:
+        with patch.dict("os.environ", {"ANALYTICS_DB_HOST": "postgres-analytics", "ANALYTICS_DB_PORT": ""}, clear=False):
+            with patch("sys.argv", ["load_keywords_to_postgres.py"]):
+                args = keyword_loader.parse_args()
+
+        self.assertEqual(args.db_host, "postgres-analytics")
+        self.assertEqual(args.db_port, 5432)
+
     def test_ensure_date_accepts_date(self) -> None:
         value = date(2026, 4, 7)
         self.assertEqual(_ensure_date(value), value)

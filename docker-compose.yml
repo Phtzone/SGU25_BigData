@@ -129,11 +129,13 @@ services:
       HDFS_CONF_dfs_permissions_enabled: "false"
       HDFS_CONF_dfs_webhdfs_enabled: "true"
       HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
-      HDFS_CONF_dfs_datanode_hostname: localhost
+      HDFS_CONF_dfs_datanode_address: 0.0.0.0:9866
+      HDFS_CONF_dfs_datanode_hostname: datanode
       HDFS_CONF_dfs_client_use_datanode_hostname: "true"
       HDFS_CONF_dfs_datanode_use_datanode_hostname: "true"
     ports:
       - "9864:9864"
+      - "9866:9866"
     volumes:
       - datanode:/hadoop/dfs/data
 

@@ -1,4 +1,6 @@
 import unittest
+from argparse import Namespace
+from unittest.mock import call
 from unittest.mock import patch
 
 from consumer.kafka_consumer_to_hdfs import (
@@ -6,6 +8,7 @@ from consumer.kafka_consumer_to_hdfs import (
     commit_processed_offsets,
     normalize_rows_for_storage,
     parse_args,
+    write_jsonl_to_hdfs,
 )
 
 
@@ -79,6 +82,67 @@ class ConsumerUtilsTests(unittest.TestCase):
                 args = parse_args()
 
         self.assertEqual(args.auto_offset_reset, "latest")
+
+
+class WriteJsonlToHdfsTests(unittest.TestCase):
+    def _build_args(self, retries: int = 2, base_delay_seconds: float = 0.1) -> Namespace:
+        return Namespace(
+            hdfs_url="http://localhost:9870",
+            hdfs_user="root",
+            webhdfs_redirect_host="",
+            hdfs_safe_mode_retries=retries,
+            hdfs_safe_mode_retry_delay_seconds=base_delay_seconds,
+        )
+
+    @patch("consumer.kafka_consumer_to_hdfs.upload_hdfs_bytes")
+    @patch("consumer.kafka_consumer_to_hdfs.time.sleep")
+    def test_write_jsonl_to_hdfs_retries_when_hdfs_in_safe_mode(
+        self, mock_sleep, mock_upload
+    ) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def makedirs(self, _directory: str) -> None:
+                self.calls += 1
+                if self.calls < 3:
+                    raise RuntimeError("Name node is in safe mode.")
+
+        args = self._build_args(retries=3, base_delay_seconds=0.1)
+        client = FakeClient()
+
+        write_jsonl_to_hdfs(
+            args=args,
+            client=client,
+            output_path="/news/raw/2026/04/18/news_000000000000.jsonl",
+            rows=[{"title": "A"}],
+        )
+
+        self.assertEqual(client.calls, 3)
+        self.assertEqual(mock_sleep.call_args_list, [call(0.1), call(0.2)])
+        mock_upload.assert_called_once()
+
+    @patch("consumer.kafka_consumer_to_hdfs.upload_hdfs_bytes")
+    @patch("consumer.kafka_consumer_to_hdfs.time.sleep")
+    def test_write_jsonl_to_hdfs_does_not_retry_non_safe_mode_errors(
+        self, mock_sleep, mock_upload
+    ) -> None:
+        class FakeClient:
+            def makedirs(self, _directory: str) -> None:
+                raise RuntimeError("Permission denied.")
+
+        args = self._build_args(retries=3, base_delay_seconds=0.1)
+
+        with self.assertRaisesRegex(RuntimeError, "Permission denied"):
+            write_jsonl_to_hdfs(
+                args=args,
+                client=FakeClient(),
+                output_path="/news/raw/2026/04/18/news_000000000000.jsonl",
+                rows=[{"title": "A"}],
+            )
+
+        mock_sleep.assert_not_called()
+        mock_upload.assert_not_called()
 
 
 if __name__ == "__main__":

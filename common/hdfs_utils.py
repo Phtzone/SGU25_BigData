@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import os
 from pathlib import Path, PurePosixPath
+import shutil
+import tempfile
 from typing import Any, Callable, Iterator, TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from hdfs import InsecureClient
 else:
     InsecureClient = Any
+
+
+LOCAL_ENDPOINT_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def _require_requests():
@@ -55,6 +63,101 @@ def rewrite_webhdfs_redirect(
         netloc = f"{effective_host}:{parts.port}"
 
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+def should_stage_spark_via_webhdfs(*, hdfs_url: str, hdfs_default_fs: str) -> bool:
+    webhdfs_host = (urlsplit(hdfs_url).hostname or "").strip().lower()
+    hdfs_rpc_host = (urlsplit(hdfs_default_fs).hostname or "").strip().lower()
+    return webhdfs_host in LOCAL_ENDPOINT_HOSTS and hdfs_rpc_host in LOCAL_ENDPOINT_HOSTS
+
+
+def resolve_local_staging_root() -> Path:
+    configured_root = os.getenv("LOCAL_STAGING_ROOT", "").strip()
+    if configured_root:
+        return Path(configured_root)
+    if os.name == "nt":
+        return Path.cwd() / ".tmp" / "spark-staging"
+    return Path(tempfile.gettempdir()) / "sgu25-bigdata-spark-staging"
+
+
+@contextmanager
+def temporary_local_staging_dir(prefix: str) -> Iterator[str]:
+    staging_root = resolve_local_staging_root()
+    staging_root.mkdir(parents=True, exist_ok=True)
+    temp_dir = staging_root / f"{prefix}{uuid4().hex}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        yield str(temp_dir)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@contextmanager
+def prepare_spark_input_path(
+    *,
+    client: InsecureClient,
+    input_path: str,
+    hdfs_url: str,
+    hdfs_default_fs: str,
+    hdfs_user: str,
+    redirect_host: str = "",
+) -> Iterator[str]:
+    if not should_stage_spark_via_webhdfs(hdfs_url=hdfs_url, hdfs_default_fs=hdfs_default_fs):
+        yield build_hdfs_uri(input_path, hdfs_default_fs)
+        return
+
+    with temporary_local_staging_dir("spark-input-") as input_dir:
+        runtime_input_uri = stage_hdfs_path_for_spark(
+            client=client,
+            hdfs_path=input_path,
+            local_dir=input_dir,
+            hdfs_url=hdfs_url,
+            hdfs_user=hdfs_user,
+            redirect_host=redirect_host,
+        )
+        yield runtime_input_uri
+
+
+@contextmanager
+def prepare_spark_input_output_paths(
+    *,
+    client: InsecureClient,
+    input_path: str,
+    output_path: str,
+    hdfs_url: str,
+    hdfs_default_fs: str,
+    hdfs_user: str,
+    redirect_host: str = "",
+) -> Iterator[tuple[str, str]]:
+    if not should_stage_spark_via_webhdfs(hdfs_url=hdfs_url, hdfs_default_fs=hdfs_default_fs):
+        yield build_hdfs_uri(input_path, hdfs_default_fs), build_hdfs_uri(output_path, hdfs_default_fs)
+        return
+
+    with temporary_local_staging_dir("spark-input-") as input_dir:
+        with temporary_local_staging_dir("spark-output-") as output_dir:
+            runtime_input_uri = stage_hdfs_path_for_spark(
+                client=client,
+                hdfs_path=input_path,
+                local_dir=input_dir,
+                hdfs_url=hdfs_url,
+                hdfs_user=hdfs_user,
+                redirect_host=redirect_host,
+            )
+            runtime_output_uri = str(Path(output_dir) / PurePosixPath(output_path).name)
+
+            try:
+                yield runtime_input_uri, runtime_output_uri
+            except Exception:
+                raise
+            else:
+                sync_local_output_directory_to_hdfs(
+                    client=client,
+                    local_dir=runtime_output_uri,
+                    hdfs_dir=output_path,
+                    hdfs_url=hdfs_url,
+                    hdfs_user=hdfs_user,
+                    redirect_host=redirect_host,
+                )
 
 
 def list_hdfs_files(client: InsecureClient, path: str) -> list[tuple[str, dict]]:
@@ -153,6 +256,45 @@ def read_hdfs_lines(
         yield line
 
 
+def stage_hdfs_path_for_spark(
+    *,
+    client: InsecureClient,
+    hdfs_path: str,
+    local_dir: str,
+    hdfs_url: str,
+    hdfs_user: str,
+    redirect_host: str = "",
+) -> str:
+    status = client.status(hdfs_path, strict=False)
+    if not status:
+        raise SystemExit(f"HDFS path does not exist: {hdfs_path}")
+
+    target_root = Path(local_dir)
+    target_root.mkdir(parents=True, exist_ok=True)
+
+    if status["type"] == "FILE":
+        local_path = target_root / PurePosixPath(hdfs_path).name
+        local_path.write_bytes(
+            read_hdfs_bytes(
+                hdfs_url=hdfs_url,
+                hdfs_user=hdfs_user,
+                path=hdfs_path,
+                redirect_host=redirect_host,
+            )
+        )
+        return str(local_path)
+
+    download_hdfs_directory(
+        client=client,
+        hdfs_dir=hdfs_path,
+        local_dir=str(target_root),
+        hdfs_url=hdfs_url,
+        hdfs_user=hdfs_user,
+        redirect_host=redirect_host,
+    )
+    return str(target_root)
+
+
 def upload_hdfs_bytes(
     *,
     hdfs_url: str,
@@ -225,6 +367,32 @@ def upload_directory_to_hdfs(
         uploaded_paths.append(target_path)
 
     return uploaded_paths
+
+
+def sync_local_output_directory_to_hdfs(
+    *,
+    client: InsecureClient,
+    local_dir: str,
+    hdfs_dir: str,
+    hdfs_url: str,
+    hdfs_user: str,
+    redirect_host: str = "",
+) -> None:
+    source_dir = Path(local_dir)
+    if not source_dir.is_dir():
+        raise SystemExit(f"Spark output directory does not exist: {local_dir}")
+
+    if client.status(hdfs_dir, strict=False):
+        client.delete(hdfs_dir, recursive=True)
+
+    upload_directory_to_hdfs(
+        client=client,
+        local_dir=local_dir,
+        hdfs_dir=hdfs_dir,
+        hdfs_url=hdfs_url,
+        hdfs_user=hdfs_user,
+        redirect_host=redirect_host,
+    )
 
 
 def download_hdfs_directory(
