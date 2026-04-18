@@ -8,6 +8,9 @@ import pandas as pd
 REFRESH_STATE_DEFAULTS = {
     "refresh_status": "idle",
     "active_dag_run_id": None,
+    "active_dag_id": None,
+    "last_triggered_action": "Refresh",
+    "last_successful_action": None,
     "last_triggered_at": None,
     "last_successful_refresh_at": None,
     "refresh_error": None,
@@ -68,14 +71,16 @@ def evaluate_today_data(*, dataframe: pd.DataFrame, today: date) -> dict[str, ob
 
 def build_refresh_status_message(
     *,
+    action_label: str = "Refresh",
     refresh_status: str,
     latest_event_date: object,
     today_row_count: int,
     refresh_error: str | None = None,
 ) -> str:
     status = (refresh_status or "idle").lower()
+    normalized_action_label = str(action_label or "Refresh")
     base = (
-        f"Refresh status: {status} | Latest event date: {latest_event_date} | "
+        f"{normalized_action_label} status: {status} | Latest event date: {latest_event_date} | "
         f"Today's articles: {today_row_count}"
     )
     if refresh_error:

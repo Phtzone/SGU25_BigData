@@ -12,6 +12,11 @@ PYTHON_BIN="$(resolve_python_bin)"
 artifact_dir="$(create_artifact_dir)"
 trap 'rm -rf "$artifact_dir"' EXIT
 
+# Keep Spark local scratch paths writable even if host/container env vars point to root-owned locations.
+export SPARK_LOCAL_DIR="${SPARK_LOCAL_DIR:-$artifact_dir/spark-local}"
+export SPARK_WAREHOUSE_DIR="${SPARK_WAREHOUSE_DIR:-$artifact_dir/spark-warehouse}"
+mkdir -p "$SPARK_LOCAL_DIR" "$SPARK_WAREHOUSE_DIR"
+
 raw_path_file="$artifact_dir/raw_path.txt"
 processed_path_file="$artifact_dir/processed_path.txt"
 curated_path_file="$artifact_dir/curated_path.txt"
@@ -39,7 +44,13 @@ before_keyword_batch_json="$(docker compose --profile airflow exec -T postgres-a
 before_keyword_batch_latest="$(printf '%s' "$before_keyword_batch_json" | tail -n 1 | tr -d '[:space:]')"
 
 run_id="$(date -u +%Y%m%d%H%M%S)"
-group_id="news-demo-${run_id}"
+group_id="news-demo-e2e"
+
+echo "==> Aligning demo consumer group to latest Kafka offsets..."
+"$PYTHON_BIN" -m scripts.reset_kafka_group_offsets \
+  --topic "${KAFKA_TOPIC:-news_raw}" \
+  --group-id "$group_id" \
+  --bootstrap-servers "${KAFKA_BOOTSTRAP_SERVERS:-localhost:9093}"
 
 echo "==> Running pipeline: RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords..."
 "$PYTHON_BIN" -m producer.run_producer

@@ -10,7 +10,7 @@ AIRFLOW_RUN_DIR = os.getenv("AIRFLOW_RUN_DIR", "/tmp")
 DAG_RUN_ARTIFACT_DIR = f"{AIRFLOW_RUN_DIR.rstrip('/')}/news_pipeline/{{{{ run_id }}}}"
 
 default_args = {
-    "owner": "codex",
+    "owner": "TTT",
     "depends_on_past": False,
     "retries": 2,
     "retry_delay": timedelta(minutes=3),
@@ -42,6 +42,16 @@ with DAG(
     catchup=False,
     tags=["big-data", "kafka", "hdfs", "news"],
 ) as dag:
+    reset_consumer_offsets_to_latest = BashOperator(
+        task_id="reset_consumer_offsets_to_latest",
+        bash_command=run_project_command(
+            "python -m scripts.reset_kafka_group_offsets "
+            '--topic "${KAFKA_TOPIC:-news_raw}" '
+            '--group-id "${KAFKA_CONSUMER_GROUP:-news-raw-to-hdfs-airflow}" '
+            '--bootstrap-servers "${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"'
+        ),
+    )
+
     fetch_and_publish_articles = BashOperator(
         task_id="fetch_and_publish_articles",
         bash_command=run_project_command("python -m producer.run_producer"),
@@ -122,6 +132,7 @@ with DAG(
         ),
     )
 
+    reset_consumer_offsets_to_latest >> fetch_and_publish_articles
     fetch_and_publish_articles >> consume_kafka_to_raw_zone >> transform_raw_to_processed_zone
     transform_raw_to_processed_zone >> validate_processed_zone
     validate_processed_zone >> curate_processed_to_curated_zone >> validate_curated_zone

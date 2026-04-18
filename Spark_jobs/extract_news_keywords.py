@@ -26,14 +26,16 @@ from common.pipeline_paths import (
 )
 
 DEFAULT_KEYWORD_SETTINGS = {
-    "keyword_score_version": "v2",
+    "keyword_score_version": "v2.2",
     "top_keywords_per_article": 10,
     "top_keywords_per_day_source": 25,
     "min_token_length": 2,
+    "min_ngram_size": 2,
     "max_ngram_size": 3,
     "title_weight": 2.0,
     "summary_weight": 1.0,
     "min_keyword_score": 1.0,
+    "min_article_count_per_day_source": 2,
     "summary_only_penalty": 0.35,
     "weak_term_penalty": 0.25,
     "source_spread_weight": 0.2,
@@ -85,6 +87,7 @@ DEFAULT_KEYWORD_SETTINGS = {
 
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 TOKEN_PATTERN = re.compile(r"[0-9A-Za-zÀ-ỹĐđ]+", re.UNICODE)
+CLAUSE_SPLIT_PATTERN = re.compile(r"[\n\r\t\.,;:!?\(\)\[\]\{\}\"“”'`…/|\\-]+", re.UNICODE)
 WHITESPACE_PATTERN = re.compile(r"\s+")
 KEYWORD_METADATA_FILENAME = "_keyword_metadata.json"
 
@@ -370,10 +373,46 @@ def split_candidate_token_segments(
     return segments
 
 
-def generate_ngrams(tokens: list[str], max_ngram_size: int) -> list[tuple[str, int]]:
+def split_text_to_candidate_segments(
+    value: Any,
+    *,
+    stopwords: set[str],
+    blocked_terms: set[str],
+    min_token_length: int,
+) -> list[list[str]]:
+    raw_text = unescape(str(value or "")).lower()
+    raw_text = URL_PATTERN.sub(" ", raw_text)
+    raw_text = raw_text.replace("_", " ")
+    raw_text = WHITESPACE_PATTERN.sub(" ", raw_text).strip()
+    if not raw_text:
+        return []
+
+    segments: list[list[str]] = []
+    for clause in CLAUSE_SPLIT_PATTERN.split(raw_text):
+        normalized_clause = normalize_keyword_text(clause)
+        if not normalized_clause:
+            continue
+
+        clause_tokens = tokenize_keyword_text(normalized_clause)
+        if not clause_tokens:
+            continue
+
+        segments.extend(
+            split_candidate_token_segments(
+                clause_tokens,
+                stopwords=stopwords,
+                blocked_terms=blocked_terms,
+                min_token_length=min_token_length,
+            )
+        )
+    return segments
+
+
+def generate_ngrams(tokens: list[str], min_ngram_size: int, max_ngram_size: int) -> list[tuple[str, int]]:
     ngrams: list[tuple[str, int]] = []
 
-    for ngram_size in range(1, max_ngram_size + 1):
+    normalized_min_ngram_size = max(1, min(min_ngram_size, max_ngram_size))
+    for ngram_size in range(normalized_min_ngram_size, max_ngram_size + 1):
         if len(tokens) < ngram_size:
             break
 
@@ -392,10 +431,14 @@ def is_valid_ngram(tokens: list[str]) -> bool:
     return True
 
 
-def collect_ngram_counts(segments: list[list[str]], max_ngram_size: int) -> Counter[tuple[str, int]]:
+def collect_ngram_counts(
+    segments: list[list[str]],
+    min_ngram_size: int,
+    max_ngram_size: int,
+) -> Counter[tuple[str, int]]:
     counts: Counter[tuple[str, int]] = Counter()
     for segment in segments:
-        for keyword, ngram_size in generate_ngrams(segment, max_ngram_size):
+        for keyword, ngram_size in generate_ngrams(segment, min_ngram_size, max_ngram_size):
             if is_valid_ngram(keyword.split(" ")):
                 counts[(keyword, ngram_size)] += 1
     return counts
@@ -421,6 +464,7 @@ def score_keywords_for_article(
     keyword_config_hash: str,
 ) -> list[dict[str, Any]]:
     min_token_length = int(settings["min_token_length"])
+    min_ngram_size = int(settings.get("min_ngram_size", 1))
     max_ngram_size = int(settings["max_ngram_size"])
     title_weight = float(settings["title_weight"])
     summary_weight = float(settings["summary_weight"])
@@ -432,20 +476,20 @@ def score_keywords_for_article(
     summary_only_penalty = float(settings["summary_only_penalty"])
     weak_term_penalty = float(settings["weak_term_penalty"])
 
-    title_segments = split_candidate_token_segments(
-        tokenize_keyword_text(normalize_keyword_text(title)),
+    title_segments = split_text_to_candidate_segments(
+        title,
         stopwords=stopwords,
         blocked_terms=blocked_terms,
         min_token_length=min_token_length,
     )
-    summary_segments = split_candidate_token_segments(
-        tokenize_keyword_text(normalize_keyword_text(summary)),
+    summary_segments = split_text_to_candidate_segments(
+        summary,
         stopwords=stopwords,
         blocked_terms=blocked_terms,
         min_token_length=min_token_length,
     )
-    title_ngram_counts = collect_ngram_counts(title_segments, max_ngram_size)
-    summary_ngram_counts = collect_ngram_counts(summary_segments, max_ngram_size)
+    title_ngram_counts = collect_ngram_counts(title_segments, min_ngram_size, max_ngram_size)
+    summary_ngram_counts = collect_ngram_counts(summary_segments, min_ngram_size, max_ngram_size)
     source_specific_blocked_phrases = resolve_source_blocked_phrases(source, source_blocklist)
 
     ranked_keywords: list[dict[str, Any]] = []
@@ -679,6 +723,7 @@ def extract_keywords_from_curated_batch(
                 + F.col("recency_score")
                 + F.col("breakout_score"),
             )
+            .where(F.col("article_count") >= int(settings.get("min_article_count_per_day_source", 1)))
             .withColumn(
                 "quality_flags",
                 F.concat_ws(

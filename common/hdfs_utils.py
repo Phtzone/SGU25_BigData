@@ -4,12 +4,20 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterator, TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
-import requests
-
 if TYPE_CHECKING:
     from hdfs import InsecureClient
 else:
     InsecureClient = Any
+
+
+def _require_requests():
+    try:
+        import requests
+    except ModuleNotFoundError as exc:  # pragma: no cover - depends on local env
+        raise ModuleNotFoundError(
+            "requests is required for WebHDFS HTTP operations. Install requirements.txt."
+        ) from exc
+    return requests
 
 
 def derive_hdfs_default_fs(hdfs_url: str, default_port: int = 9000) -> str:
@@ -101,6 +109,7 @@ def read_hdfs_bytes(
     path: str,
     redirect_host: str = "",
 ) -> bytes:
+    requests = _require_requests()
     open_url = f"{hdfs_url.rstrip('/')}/webhdfs/v1{path}"
     open_response = requests.get(
         open_url,
@@ -154,6 +163,7 @@ def upload_hdfs_bytes(
     overwrite: bool = True,
     content_type: str = "application/octet-stream",
 ) -> None:
+    requests = _require_requests()
     create_url = f"{hdfs_url.rstrip('/')}/webhdfs/v1{path}"
     create_response = requests.put(
         create_url,

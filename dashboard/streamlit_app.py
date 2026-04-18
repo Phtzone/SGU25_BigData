@@ -11,6 +11,7 @@ import psycopg2
 import streamlit as st
 
 try:
+    from dashboard.config_utils import build_airflow_config, resolve_config_value
     from dashboard.airflow_client import AirflowApiClient, AirflowApiError
     from dashboard.display_utils import round_metric_columns, shorten_hash_columns
     from dashboard.query_builders import (
@@ -37,6 +38,7 @@ try:
         summarize_today_article_availability,
     )
 except ModuleNotFoundError:
+    from config_utils import build_airflow_config, resolve_config_value
     from airflow_client import AirflowApiClient, AirflowApiError
     from display_utils import round_metric_columns, shorten_hash_columns
     from query_builders import (
@@ -121,13 +123,15 @@ def page_setup() -> None:
 
 def resolve_secret(name: str, default: str) -> str:
     try:
-        database_secrets = st.secrets.get("analytics_db", {})
+        secrets = st.secrets
     except Exception:
-        database_secrets = {}
-    secret_key = name.lower()
-    if secret_key in database_secrets:
-        return str(database_secrets[secret_key])
-    return os.getenv(name, default)
+        secrets = {}
+    return resolve_config_value(
+        name,
+        default,
+        env_resolver=os.getenv,
+        secrets=secrets,
+    )
 
 
 def db_config() -> dict[str, Any]:
@@ -142,14 +146,16 @@ def db_config() -> dict[str, Any]:
 
 
 APP_TIMEZONE = resolve_secret("APP_TIMEZONE", "Asia/Bangkok")
+NEWS_PIPELINE_DAG_ID = "news_pipeline"
+KEYWORD_RESCORE_DAG_ID = "keyword_rescore_pipeline"
+DAG_ACTION_LABELS = {
+    NEWS_PIPELINE_DAG_ID: "Refresh",
+    KEYWORD_RESCORE_DAG_ID: "Keyword re-score",
+}
 
 
 def airflow_config() -> dict[str, Any]:
-    return {
-        "base_url": resolve_secret("AIRFLOW_API_URL", "http://localhost:8080/api/v1"),
-        "username": resolve_secret("AIRFLOW_USERNAME", ""),
-        "password": resolve_secret("AIRFLOW_PASSWORD", ""),
-    }
+    return build_airflow_config(resolve_secret)
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -200,9 +206,19 @@ def format_refresh_timestamp(value: datetime | None) -> str:
 
 
 def trigger_refresh() -> None:
+    trigger_dag_run(NEWS_PIPELINE_DAG_ID)
+
+
+def trigger_keyword_rescore() -> None:
+    trigger_dag_run(KEYWORD_RESCORE_DAG_ID)
+
+
+def trigger_dag_run(dag_id: str) -> None:
     client = get_airflow_client()
-    result = client.trigger_dag_run("news_pipeline")
+    result = client.trigger_dag_run(dag_id)
+    st.session_state["active_dag_id"] = dag_id
     st.session_state["active_dag_run_id"] = result["dag_run_id"]
+    st.session_state["last_triggered_action"] = DAG_ACTION_LABELS.get(dag_id, "Refresh")
     st.session_state["refresh_status"] = (result.get("state") or "queued").lower()
     st.session_state["last_triggered_at"] = local_now(APP_TIMEZONE)
     st.session_state["refresh_error"] = None
@@ -213,17 +229,21 @@ def poll_refresh_status() -> None:
     if not dag_run_id:
         return
 
+    dag_id = str(st.session_state.get("active_dag_id") or NEWS_PIPELINE_DAG_ID)
     client = get_airflow_client()
-    result = client.get_dag_run("news_pipeline", dag_run_id)
+    result = client.get_dag_run(dag_id, dag_run_id)
     state = (result.get("state") or "queued").lower()
     st.session_state["refresh_status"] = state
     if state == "success":
+        st.session_state["last_successful_action"] = DAG_ACTION_LABELS.get(dag_id, "Refresh")
         st.session_state["last_successful_refresh_at"] = local_now(APP_TIMEZONE)
         st.session_state["active_dag_run_id"] = None
+        st.session_state["active_dag_id"] = None
         st.session_state["refresh_error"] = None
         st.cache_data.clear()
     elif state == "failed":
         st.session_state["active_dag_run_id"] = None
+        st.session_state["active_dag_id"] = None
 
 
 def fetch_today_summary(filters: dict[str, Any]) -> dict[str, Any]:
@@ -256,8 +276,11 @@ def render_refresh_status_panel(
     latest_event_date = today_summary.get("latest_event_date")
     if latest_event_date is None and metrics is not None:
         latest_event_date = metrics.get("latest_event_date")
+    active_dag_id = st.session_state.get("active_dag_id")
+    active_action_label = DAG_ACTION_LABELS.get(str(active_dag_id), st.session_state.get("last_triggered_action", "Refresh"))
     st.caption(
         build_refresh_status_message(
+            action_label=active_action_label,
             refresh_status=str(st.session_state.get("refresh_status", "idle")),
             latest_event_date=latest_event_date,
             today_row_count=int(today_summary["today_row_count"]),
@@ -272,13 +295,17 @@ def render_refresh_status_panel(
     )
     if st.session_state.get("refresh_status") == "failed" and st.session_state.get("refresh_error"):
         st.error(
-            "Refresh failed. Inspect the Airflow run logs for details.\n\n"
+            f"{active_action_label} failed. Inspect the Airflow run logs for details.\n\n"
             f"{st.session_state['refresh_error']}"
         )
     elif st.session_state.get("refresh_status") == "success" and today_summary["show_empty_today_state"]:
-        st.info("Da refresh thanh cong nhung chua co bai bao ngay hom nay tu cac nguon RSS.")
+        st.info(
+            "Da cap nhat thanh cong nhung chua co bai co ngay phat hanh hom nay (event_date) tu cac nguon RSS. "
+            "Du lieu moi nhat hien co den ngay: "
+            f"{today_summary.get('latest_event_date')}."
+        )
     elif st.session_state.get("active_dag_run_id"):
-        st.info("Refresh is in progress. Dashboard status will update automatically.")
+        st.info(f"{active_action_label} is in progress. Dashboard status will update automatically.")
 
 
 def sidebar_filters() -> dict[str, Any]:
@@ -320,6 +347,14 @@ def sidebar_filters() -> dict[str, Any]:
         if st.button("Refresh today's data", width="stretch", disabled=refresh_disabled):
             try:
                 trigger_refresh()
+                st.rerun()
+            except AirflowApiError as exc:
+                st.session_state["refresh_status"] = "failed"
+                st.session_state["refresh_error"] = str(exc)
+
+        if st.button("Re-score keywords now", width="stretch", disabled=refresh_disabled):
+            try:
+                trigger_keyword_rescore()
                 st.rerun()
             except AirflowApiError as exc:
                 st.session_state["refresh_status"] = "failed"

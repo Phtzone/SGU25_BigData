@@ -34,12 +34,27 @@ class KeywordExtractionTests(unittest.TestCase):
         self.assertEqual(normalized, "ai cho seo xem")
 
     def test_generate_ngrams_builds_all_sizes_up_to_max(self) -> None:
-        ngrams = generate_ngrams(["tri", "tue", "nhan", "tao"], max_ngram_size=3)
+        ngrams = generate_ngrams(
+            ["tri", "tue", "nhan", "tao"],
+            min_ngram_size=1,
+            max_ngram_size=3,
+        )
 
         self.assertIn(("tri", 1), ngrams)
         self.assertIn(("tri tue", 2), ngrams)
         self.assertIn(("tri tue nhan", 3), ngrams)
         self.assertIn(("tue nhan tao", 3), ngrams)
+
+    def test_generate_ngrams_respects_min_ngram_size(self) -> None:
+        ngrams = generate_ngrams(
+            ["tri", "tue", "nhan", "tao"],
+            min_ngram_size=2,
+            max_ngram_size=3,
+        )
+
+        self.assertNotIn(("tri", 1), ngrams)
+        self.assertIn(("tri tue", 2), ngrams)
+        self.assertIn(("tri tue nhan", 3), ngrams)
 
     def test_filter_tokens_removes_stopwords_short_tokens_and_numbers(self) -> None:
         filtered = filter_tokens(
@@ -69,6 +84,7 @@ class KeywordExtractionTests(unittest.TestCase):
         settings = dict(DEFAULT_KEYWORD_SETTINGS)
         settings["top_keywords_per_article"] = 10
         settings["min_keyword_score"] = 0.5
+        settings["min_ngram_size"] = 1
         settings["summary_only_penalty"] = 0.0
 
         ranked = score_keywords_for_article(
@@ -85,7 +101,7 @@ class KeywordExtractionTests(unittest.TestCase):
         self.assertEqual(ranked[0]["keyword"], "ai")
         self.assertEqual(ranked[0]["article_score"], 5.0)
         self.assertEqual(ranked[0]["rank_in_article"], 1)
-        self.assertEqual(ranked[0]["keyword_score_version"], "v2")
+        self.assertEqual(ranked[0]["keyword_score_version"], settings["keyword_score_version"])
         self.assertEqual(ranked[0]["keyword_config_hash"], "cfg12345")
         self.assertIn("doanh nghiep", {item["keyword"] for item in ranked})
         self.assertNotIn("ai seo", {item["keyword"] for item in ranked})
@@ -93,6 +109,7 @@ class KeywordExtractionTests(unittest.TestCase):
     def test_score_keywords_for_article_removes_blocked_noise_terms(self) -> None:
         settings = dict(DEFAULT_KEYWORD_SETTINGS)
         settings["top_keywords_per_article"] = 10
+        settings["min_ngram_size"] = 1
 
         ranked = score_keywords_for_article(
             source="VTV",
@@ -113,6 +130,7 @@ class KeywordExtractionTests(unittest.TestCase):
     def test_score_keywords_for_article_applies_summary_only_penalty(self) -> None:
         settings = dict(DEFAULT_KEYWORD_SETTINGS)
         settings["min_keyword_score"] = 0.5
+        settings["min_ngram_size"] = 1
         settings["top_keywords_per_article"] = 20
 
         ranked = score_keywords_for_article(

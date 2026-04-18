@@ -190,6 +190,9 @@ services:
       ANALYTICS_DB_NAME: analytics
       ANALYTICS_DB_USER: analytics
       ANALYTICS_DB_PASSWORD: analytics
+      AIRFLOW_API_URL: http://airflow-webserver:8080/api/v1
+      AIRFLOW_USERNAME: airflow
+      AIRFLOW_PASSWORD: airflow
       APP_TIMEZONE: Asia/Bangkok
       STREAMLIT_SERVER_HEADLESS: "true"
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"

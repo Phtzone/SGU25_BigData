@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
-import requests
+try:
+    import requests as _requests
+except ModuleNotFoundError:  # pragma: no cover - depends on local env
+    requests = SimpleNamespace(Session=None)
+else:
+    requests = _requests
 
 
 class AirflowApiError(RuntimeError):
@@ -16,11 +22,16 @@ class AirflowApiClient:
     username: str
     password: str
     timeout_seconds: int = 10
-    session: requests.Session = field(init=False)
+    session: Any = field(init=False)
 
     def __post_init__(self) -> None:
+        session_factory = getattr(requests, "Session", None)
+        if session_factory is None:
+            raise AirflowApiError(
+                "requests is required for Airflow API calls. Install requirements-dashboard.txt."
+            )
         self.base_url = self.base_url.rstrip("/")
-        self.session = requests.Session()
+        self.session = session_factory()
         self.session.auth = (self.username, self.password)
 
     def trigger_dag_run(self, dag_id: str) -> dict[str, Any]:
