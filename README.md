@@ -1,5 +1,12 @@
 # Real-Time News Analytics Pipeline
 
+## Thành viên nhóm
+- 3123580051 - Phạm Hoàng Tiến
+- 3123580046 - Thạch Ngọc Thảo
+- 3123580058 - Nguyễn Thái Tú
+
+Giảng viên hướng dẫn: TS. Vũ Ngọc Thanh Sang
+
 Pipeline chính:
 
 `RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords -> PostgreSQL analytics -> Streamlit dashboard`
@@ -8,12 +15,6 @@ Pipeline chính:
 
 ![Real-Time News Analytics Pipeline Architecture](docs/flow.jpg)
 
-## Thành viên nhóm
-- 3123580051 - Phạm Hoàng Tiến
-- 3123580046 - Thạch Ngọc Thảo
-- 3123580058 - Nguyễn Thái Tú
-
-Giảng viên hướng dẫn: TS. Vũ Ngọc Thanh Sang
 
 ## Yêu cầu môi trường
 
@@ -126,9 +127,4 @@ Refresh Airflow chỉ bật khi có:
 - Airflow UI: `localhost:8080`
 - Streamlit UI: `localhost:8501`
 
-## Tài liệu liên quan
 
-- `docs/data_contract.md`
-- `docs/data_architecture_diagram.svg`
-- `docs/project_architecture.svg`
-- `sql/analytics_init.sql`
