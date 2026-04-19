@@ -4,6 +4,10 @@ Pipeline chính:
 
 `RSS -> Kafka -> HDFS raw -> Spark processed -> Spark curated -> Spark keywords -> PostgreSQL analytics -> Streamlit dashboard`
 
+## Architecture Flow
+
+![Real-Time News Analytics Pipeline Architecture](docs/flow.jpg)
+
 ## Thành viên nhóm
 - 3123580051 - Phạm Hoàng Tiến
 - 3123580046 - Thạch Ngọc Thảo
